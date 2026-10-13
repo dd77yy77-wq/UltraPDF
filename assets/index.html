@@ -137,6 +137,7 @@ body.fs #fsx{display:flex}
     <button class="mi pr needdoc" id="m-bm"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Закладки</button>
     <button class="mi pr needdoc" id="m-toc"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Оглавление</button>
     <button class="mi pr needdoc" id="m-txt"><svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14M9 19h6"/></svg>Текст страницы</button>
+    <button class="mi pr needdoc" id="m-rot"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></svg>Повернуть</button>
     <button class="mi pr needdoc" id="m-print"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>Печать</button>
     <button class="mi pr" id="m-look"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.4-1-2.5 0-.9.7-1.6 1.7-1.6H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></svg>Внешний вид</button>
     <button class="mi pr" id="m-fs"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Полный экран</button>
@@ -266,10 +267,34 @@ body.fs #fsx{display:flex}
   function setMode(m) { mode = m; lsSet('mode', String(m)); applyLook(); schedule(); }
   // pages are tinted natively (Java side), so a switch just asks for fresh renders
   $('night').addEventListener('click', function () { closeMenu(); setMode(look() === 1 ? 0 : 1); });
+  // a new rotation (or Pro switched off/on): new page shapes, fresh images, links and highlights redrawn
+  function relayout() {
+    if (!N) return;
+    var keep = cur, kf = els[cur] ? Math.max(0, (sc.scrollTop - els[cur].offsetTop) / (els[cur].offsetHeight || 1)) : 0;
+    for (var k in imgs) {
+      var im = imgs[k];
+      if (im.img && im.img.parentNode) { im.img.removeAttribute('src'); im.img.remove(); }
+      if (els[k]) els[k].classList.remove('on');
+    }
+    imgs = {}; lkDone = {};
+    for (var i = 0; i < N; i++) {
+      var kids = els[i].children;
+      for (var j = kids.length - 1; j >= 0; j--) if (kids[j].className === 'lk') kids[j].remove();
+      if (pw[i]) applyDim(i, pw[i], ph[i]);
+    }
+    goTo(keep, kf); cur = keep; updateLabel();
+    schedule();
+  }
+  $('m-rot').addEventListener('click', function () {
+    closeMenu();
+    if (!N) return;
+    rot = (rot + 90) % 360; lsSet(rotKey(), String(rot));
+    relayout();
+  });
   $('m-pro').addEventListener('click', function () {
     pro = !pro; lsSet('pro', pro ? '1' : '0');
     if (!pro) { if (body.classList.contains('fs')) exitFs(); closeAllDialogs(); }
-    applyLook(); schedule();
+    applyLook(); if (rot) relayout(); else schedule();
     if (pro) for (var k in imgs) if (imgs[k].img && els[k] && els[k].classList.contains('on')) ensureLinks(+k);
   });
   var segM = $('seg-mode').children, segT = $('seg-theme').children;
@@ -377,14 +402,31 @@ body.fs #fsx{display:flex}
     return Math.max(640, Math.min(2400, w));
   }
   var pw = [], ph = [];
+  // quarter turns of the whole document (Pro), remembered per document; pw/ph keep the page's own size
+  var rot = 0;
+  function R() { return pro ? rot : 0; }
   function applyDim(i, w, h) {
-    if (w > 0 && h > 0) { pw[i] = w; ph[i] = h; els[i].style.paddingBottom = (h / w * 100) + '%'; paintHl(i); }
+    if (w > 0 && h > 0) {
+      pw[i] = w; ph[i] = h;
+      els[i].style.paddingBottom = (R() % 180 ? w / h : h / w) * 100 + '%';
+      paintHl(i);
+    }
+  }
+  // a rectangle [l,t,r,b] in page units -> fractions of the turned page: [left, top, width, height]
+  function turnRect(q, W, H) {
+    var a = R(), l = q[0], t = q[1], r = q[2], b = q[3], x0, y0, x1, y1, rw = W, rh = H;
+    if (a === 90) { x0 = H - b; y0 = l; x1 = H - t; y1 = r; rw = H; rh = W; }
+    else if (a === 180) { x0 = W - r; y0 = H - b; x1 = W - l; y1 = H - t; }
+    else if (a === 270) { x0 = t; y0 = W - r; x1 = b; y1 = W - l; rw = H; rh = W; }
+    else { x0 = l; y0 = t; x1 = r; y1 = b; }
+    return [x0 / rw * 100, y0 / rh * 100, (x1 - x0) / rw * 100, (y1 - y0) / rh * 100];
   }
 
   function build() {
     pagesEl.innerHTML = '';
     els = []; imgs = {}; cur = 0; sized = false; z = 1; pw = []; ph = []; lkDone = {};
     closeSearch(); closeMenu(); closeAllDialogs();
+    rot = parseInt(lsGet(rotKey()) || '0', 10) || 0;
     pagesEl.style.width = '100%';
     sc.scrollTop = 0; sc.scrollLeft = 0;
     var w0 = 595, h0 = 842;
@@ -448,7 +490,7 @@ body.fs #fsx{display:flex}
     var c = indexAt(sc.scrollTop + h * 0.35), best = -1, bd = 1e9;
     for (var i = first; i <= last; i++) {
       var r = imgs[i];
-      if (!r || r.q < tw * 0.8 || r.n !== look()) {
+      if (!r || r.q < tw * 0.8 || r.n !== look() || r.rot !== R()) {
         var d = Math.abs(i - c);
         if (d < bd) { bd = d; best = i; }
       }
@@ -461,7 +503,7 @@ body.fs #fsx{display:flex}
   // pages arrive as plain images from the app (https://pdf.local/..., answered natively off the JS thread)
   function renderPage(i, tw) {
     var r = imgs[i] || (imgs[i] = {});
-    r.q = tw; r.n = look();          // even a failed page is not retried in a loop
+    r.q = tw; r.n = look(); r.rot = R();          // even a failed page is not retried in a loop
     var img = r.img;
     if (!img) {
       img = r.img = document.createElement('img');
@@ -474,7 +516,7 @@ body.fs #fsx{display:flex}
       els[i].appendChild(img);
     }
     r.busy = true; r.t = Date.now();
-    img.src = 'https://pdf.local/p/' + i + '.jpg?w=' + tw + '&n=' + look() + '&g=' + gen;
+    img.src = 'https://pdf.local/p/' + i + '.jpg?w=' + tw + '&n=' + look() + '&r=' + R() + '&g=' + gen;
   }
 
   // decoded pages are big: the zoomier the view, the fewer of them are kept
@@ -540,6 +582,7 @@ body.fs #fsx{display:flex}
   jin.addEventListener('keydown', function (e) { if (e.key === 'Enter') doJump(); });
 
   /* ---------- remembering the reading position ---------- */
+  function rotKey() { return 'rot:' + name + ':' + N; }
   function posKey() { return 'pos:' + name + ':' + N; }
   var saveT = 0;
   function saveSoon() { if (saveT) clearTimeout(saveT); saveT = setTimeout(saveNow, 600); }
@@ -642,10 +685,11 @@ body.fs #fsx{display:flex}
       for (var r = 0; r < sres[m].r.length; r++) {
         var q = sres[m].r[r], d = document.createElement('div');
         d.className = 'hl' + (m === sidx ? ' cur' : '');
-        d.style.left = (q[0] / pw[i] * 100) + '%';
-        d.style.top = (q[1] / ph[i] * 100) + '%';
-        d.style.width = ((q[2] - q[0]) / pw[i] * 100) + '%';
-        d.style.height = ((q[3] - q[1]) / ph[i] * 100) + '%';
+        var t4 = turnRect(q, pw[i], ph[i]);
+        d.style.left = t4[0] + '%';
+        d.style.top = t4[1] + '%';
+        d.style.width = t4[2] + '%';
+        d.style.height = t4[3] + '%';
         els[i].appendChild(d);
       }
     }
@@ -799,10 +843,11 @@ body.fs #fsx{display:flex}
     for (var k = 0; k < list.length; k++) {
       var l = list[k], a = document.createElement('a');
       a.className = 'lk';
-      a.style.left = (l.r[0] / l.vw * 100) + '%';
-      a.style.top = (l.r[1] / l.vh * 100) + '%';
-      a.style.width = ((l.r[2] - l.r[0]) / l.vw * 100) + '%';
-      a.style.height = ((l.r[3] - l.r[1]) / l.vh * 100) + '%';
+      var t4 = turnRect(l.r, l.vw, l.vh);
+      a.style.left = t4[0] + '%';
+      a.style.top = t4[1] + '%';
+      a.style.width = t4[2] + '%';
+      a.style.height = t4[3] + '%';
       a.addEventListener('click', linkHandler(doc, l));
       els[i].appendChild(a);
     }

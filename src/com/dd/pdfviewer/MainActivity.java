@@ -11,6 +11,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.pdf.PdfRenderer;
 import android.net.Uri;
@@ -496,7 +497,7 @@ public class MainActivity extends Activity {
             0, 0, 0, 1, 0};
 
     /** Page i as JPEG (null on failure). */
-    byte[] renderJpeg(int i, int widthPx, int mode) {
+    byte[] renderJpeg(int i, int widthPx, int mode, int rot) {
         Bitmap bmp = null;
         Bitmap out = null;
         try {
@@ -504,8 +505,12 @@ public class MainActivity extends Activity {
                 if (renderer == null || i < 0 || i >= pageCount) return null;
                 PdfRenderer.Page p = renderer.openPage(i);
                 try {
-                    int w = Math.max(64, Math.min(widthPx, 3000));
-                    int h = Math.max(1, (int) ((long) w * p.getHeight() / Math.max(1, p.getWidth())));
+                    // widthPx is the width of the finished picture: a quarter turn swaps width and height
+                    int pwid = Math.max(1, p.getWidth()), phei = Math.max(1, p.getHeight());
+                    boolean quarter = rot == 90 || rot == 270;
+                    int fin = Math.max(64, Math.min(widthPx, 3000));
+                    int w = quarter ? Math.max(1, (int) ((long) fin * pwid / phei)) : fin;
+                    int h = Math.max(1, (int) ((long) w * phei / pwid));
                     bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
                     bmp.eraseColor(0xFFFFFFFF);
                     p.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
@@ -515,11 +520,24 @@ public class MainActivity extends Activity {
             }
             // everything below runs outside the lock, so the next page can already be rendering
             out = bmp;
-            if (mode == 1 || mode == 2) {
-                out = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
+            if (mode == 1 || mode == 2 || rot != 0) {
+                int bw = bmp.getWidth(), bh = bmp.getHeight();
+                boolean quarter = rot == 90 || rot == 270;
+                out = Bitmap.createBitmap(quarter ? bh : bw, quarter ? bw : bh, Bitmap.Config.ARGB_8888);
                 Paint paint = new Paint();
-                paint.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(mode == 1 ? NIGHT : SEPIA)));
-                new Canvas(out).drawBitmap(bmp, 0, 0, paint);
+                if (mode == 1 || mode == 2) paint.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(mode == 1 ? NIGHT : SEPIA)));
+                Matrix m = new Matrix();
+                if (rot == 90) {
+                    m.postRotate(90);
+                    m.postTranslate(bh, 0);
+                } else if (rot == 180) {
+                    m.postRotate(180);
+                    m.postTranslate(bw, bh);
+                } else if (rot == 270) {
+                    m.postRotate(270);
+                    m.postTranslate(0, bw);
+                }
+                new Canvas(out).drawBitmap(bmp, m, paint);
                 bmp.recycle();
                 bmp = null;
             }
@@ -630,7 +648,10 @@ public class MainActivity extends Activity {
                     int w = Integer.parseInt(u.getQueryParameter("w"));
                     int mode = Integer.parseInt(u.getQueryParameter("n"));
                     int g = Integer.parseInt(u.getQueryParameter("g"));
-                    byte[] jpg = g == a.gen ? a.renderJpeg(i, w, mode) : null;
+                    String rq = u.getQueryParameter("r");
+                    int rot = rq == null ? 0 : ((Integer.parseInt(rq) % 360) + 360) % 360;
+                    if (rot % 90 != 0) rot = 0;
+                    byte[] jpg = g == a.gen ? a.renderJpeg(i, w, mode, rot) : null;
                     if (jpg != null) return reply(200, "OK", "image/jpeg", jpg);
                 }
             } catch (Exception ignored) {

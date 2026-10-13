@@ -43,7 +43,7 @@ function mkEl(tag, id) {
     el._src = '';
     Object.defineProperty(el, 'src', {
       get() { return this._src; },
-      set(v) { this._src = v; const m = /\/p\/(\d+)\.jpg\?w=(\d+)&n=(\d)&g=(\d+)/.exec(v); if (m) { calls.render.push([+m[1], +m[2], +m[3], +m[4]]); } setTimeout(() => { if (this._src === v && this.onload) this.onload(); }, 5); }
+      set(v) { this._src = v; const m = /\/p\/(\d+)\.jpg\?w=(\d+)&n=(\d)&r=(\d+)&g=(\d+)/.exec(v); if (m) { calls.render.push([+m[1], +m[2], +m[3], +m[5], +m[4]]); } setTimeout(() => { if (this._src === v && this.onload) this.onload(); }, 5); }
     });
   }
   return el;
@@ -73,7 +73,7 @@ const byId = {};
 const ids = ['scroller', 'pages', 'title', 'emsg', 'slider', 'lbl', 'jump', 'jin', 'open2', 'night', 'nlbl', 'jgo', 'jx',
   'burger', 'scrim', 'm-pro', 'm-open', 'm-search', 'm-share', 'm-save', 'm-about', 'about', 'aver', 'a-upd', 'a-share', 'a-apk', 'a-git', 'a-close',
   'm-hist', 'hist', 'hlist', 'h-clear', 'h-close', 'm-bm', 'bm', 'bmlist', 'bm-add', 'bm-close', 'm-toc', 'toc', 'toclist', 'toc-close',
-  'm-txt', 'txt', 'txtt', 'ttext', 'txt-copy', 'txt-close', 'm-print', 'm-look', 'look', 'bright', 'bright-auto', 'look-close',
+  'm-txt', 'txt', 'txtt', 'ttext', 'txt-copy', 'txt-close', 'm-print', 'm-rot', 'm-look', 'look', 'bright', 'bright-auto', 'look-close',
   'm-fs', 'fsx', 'pass', 'passmsg', 'pwd', 'pass-ok', 'pass-no', 'sbar', 'sclose', 'sq', 'scount', 'sprev', 'snext'];
 ids.forEach(i => byId[i] = mkEl('div', i));
 [['seg-mode', ['0', '2', '1']], ['seg-theme', ['dark', 'light']]].forEach(([id, vals]) => {
@@ -139,7 +139,7 @@ ok(calls.render.every(([i, w, n, g]) => w >= 640 && w <= 2400 && w % 64 === 0 &&
 ok(calls.render[0][0] === 0, 'nearest page (the first) requested first');
 const p0 = byId.pages.children[0];
 const img0 = p0.children.find(c => c.tag === 'img');
-ok(img0 && /^https:\/\/pdf\.local\/p\/0\.jpg\?w=\d+&n=0&g=1$/.test(img0.src), 'image src is a native pdf.local URL: ' + (img0 && img0.src));
+ok(img0 && /^https:\/\/pdf\.local\/p\/0\.jpg\?w=\d+&n=0&r=0&g=1$/.test(img0.src), 'image src is a native pdf.local URL: ' + (img0 && img0.src));
 ok(p0.classList.contains('on'), 'placeholder hidden once the image loaded');
 ok(calls.getDocument.length === 0, 'normal mode: pdf.js is not even loaded');
 
@@ -270,6 +270,21 @@ lks(0)[0].fire('click', {}); await flush();
 ok(byId.scroller.scrollTop === 620 * 5 - TB, 'internal link scrolls to its page: ' + byId.scroller.scrollTop);
 lks(0)[1].fire('click', {});
 ok(calls.openUrl.length === 1 && calls.openUrl[0] === 'https://x.y/', 'external link goes to the app');
+
+console.log('== rotation (Pro)');
+const rk = Object.keys(store).find(k => k.startsWith('rot:'));
+ok(!rk || store[rk] === '0', 'no rotation saved yet');
+byId.scroller.scrollTop = 0; byId.scroller.fire('scroll', {}); runTimers(1500); await flush();
+byId['m-rot'].fire('click', {}); runTimers(1500); await flush();
+const rk2 = Object.keys(store).find(k => k.startsWith('rot:'));
+ok(rk2 && store[rk2] === '90', 'a quarter turn is remembered per document: ' + rk2);
+ok(Math.abs(parseFloat(byId.pages.children[0].style.paddingBottom) - 595 / 842 * 100) < 0.01, 'page 1 is now landscape-shaped');
+ok(calls.render.slice(-1)[0][4] === 90, 'pages are requested with r=90 (new images after the turn)');
+ok(lks(0).length === 2 && Math.abs(parseFloat(lks(0)[0].style.left) - (842 - 142) / 842 * 100) < 0.01 && Math.abs(parseFloat(lks(0)[0].style.top) - 10 / 595 * 100) < 0.01, 'links follow the turn');
+byId['m-rot'].fire('click', {}); runTimers(1500); await flush();
+ok(Math.abs(parseFloat(byId.pages.children[0].style.paddingBottom) - 842 / 595 * 100) < 0.01 && store[rk2] === '180', '180 degrees: portrait again, saved');
+byId['m-rot'].fire('click', {}); byId['m-rot'].fire('click', {}); runTimers(1500); await flush();
+ok(store[rk2] === '0', 'four turns come back to 0');
 
 console.log('== bookmarks');
 byId.scroller.scrollTop = 620 * 8; byId.scroller.fire('scroll', {}); runTimers(300);

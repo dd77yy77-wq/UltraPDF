@@ -13,10 +13,11 @@ os.makedirs(OUT, exist_ok=True)
 PDFBYTES = open(PDF, "rb").read()
 requests_seen = {"range": [], "pages": []}
 
-def page_jpeg(i, w, mode):
+def page_jpeg(i, w, mode, rot=0):
     raw = subprocess.run(["pdftoppm", "-jpeg", "-jpegopt", "quality=85", "-f", str(i + 1), "-l", str(i + 1), "-scale-to-x", str(w), "-scale-to-y", "-1", PDF],
                          capture_output=True, check=True).stdout
     im = Image.open(io.BytesIO(raw)).convert("RGB")
+    if rot: im = im.rotate(-rot, expand=True); im = im.resize((w, round(im.height * w / im.width)))
     if mode == 1: im = ImageOps.invert(im)
     elif mode == 2: im = ImageOps.colorize(ImageOps.grayscale(im), (0, 0, 0), (255, 237, 199))
     b = io.BytesIO(); im.save(b, "JPEG", quality=85); return b.getvalue()
@@ -30,9 +31,9 @@ def handler(route, request):
         ct = "text/html" if f.endswith(".html") else "application/javascript" if f.endswith(".js") else (mimetypes.guess_type(f)[0] or "application/octet-stream")
         return route.fulfill(status=200, body=open(f, "rb").read(), headers={"Content-Type": ct, "Cache-Control": "no-cache"})
     if p.startswith("/p/"):
-        i = int(re.match(r"/p/(\d+)\.jpg", p).group(1)); w = int(q["w"][0]); n = int(q["n"][0])
+        i = int(re.match(r"/p/(\d+)\.jpg", p).group(1)); w = int(q["w"][0]); n = int(q["n"][0]); rot = int(q.get("r", ["0"])[0])
         requests_seen["pages"].append((i, w, n))
-        return route.fulfill(status=200, body=page_jpeg(i, w, n), headers={"Content-Type": "image/jpeg", "Cache-Control": "no-store"})
+        return route.fulfill(status=200, body=page_jpeg(i, w, n, rot), headers={"Content-Type": "image/jpeg", "Cache-Control": "no-store"})
     if p.startswith("/doc/"):
         size = len(PDFBYTES); rng = request.headers.get("range")
         requests_seen.setdefault("doc", []).append((request.method, rng))
@@ -116,7 +117,7 @@ with sync_playwright() as pw:
     print("== Pro mode")
     page.click("#m-pro"); page.wait_for_timeout(300)
     vis = page.evaluate("[...document.querySelectorAll('#menu .mi')].filter(e => e.offsetParent !== null).map(e => e.textContent.trim())")
-    ok(vis == ["Pro-режим", "Открыть", "История", "Ночной режим", "Поиск", "Поделиться", "Сохранить как…", "Закладки", "Оглавление", "Текст страницы", "Печать", "Внешний вид", "Полный экран", "О приложении"], "Pro menu: %s" % vis)
+    ok(vis == ["Pro-режим", "Открыть", "История", "Ночной режим", "Поиск", "Поделиться", "Сохранить как…", "Закладки", "Оглавление", "Текст страницы", "Повернуть", "Печать", "Внешний вид", "Полный экран", "О приложении"], "Pro menu: %s" % vis)
     page.screenshot(path=os.path.join(OUT, "4-menu-pro.png"))
     page.click("#scrim", position={"x": 300, "y": 800}); page.wait_for_timeout(300)
     page.wait_for_function("window.__calls && true"); page.wait_for_timeout(1500)
@@ -167,6 +168,14 @@ with sync_playwright() as pw:
     page.click("#burger"); page.click("#m-look"); page.click("#seg-theme button:nth-child(1)"); page.click("#seg-mode button:nth-child(3)"); page.click("#look-close"); page.wait_for_timeout(1200)
     ok("night" in page.evaluate("document.body.className") and "light" not in page.evaluate("document.body.className"), "night + dark theme")
     page.screenshot(path=os.path.join(OUT, "12-night.png"))
+
+    print("== rotation")
+    page.click("#burger"); page.click("#m-rot"); page.wait_for_timeout(1200)
+    ok(page.evaluate("document.querySelector('.pg img').naturalWidth > document.querySelector('.pg img').naturalHeight"), "after a quarter turn the page image is landscape")
+    ok(page.evaluate("(() => { const r = document.querySelector('.pg').getBoundingClientRect(); return r.width > r.height; })()"), "and so is its place on the screen")
+    page.screenshot(path=os.path.join(OUT, "12b-rotated.png"))
+    page.click("#burger"); page.click("#m-rot"); page.click("#burger"); page.click("#m-rot"); page.click("#burger"); page.click("#m-rot"); page.wait_for_timeout(1200)
+    ok(page.evaluate("(() => { const r = document.querySelector('.pg').getBoundingClientRect(); return r.height > r.width; })()"), "four turns: upright again")
 
     print("== full screen")
     page.click("#burger"); page.click("#m-fs"); page.wait_for_timeout(500)
