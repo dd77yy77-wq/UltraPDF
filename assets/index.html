@@ -5,78 +5,108 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>UltraPDF</title>
 <style>
-:root{--bg:#1c1d20;--bar:#2a2c31;--fg:#eef0f4;--dim:#9aa1ad;--acc:#ff5a4f;--line:#3a3d44;--bh:40px}
+:root{--bg:#1c1d20;--bar:#2a2c31;--fg:#eef0f4;--dim:#9aa1ad;--acc:#ff5a4f;--line:#3a3d44;--bh:40px;
+  --btn:#3a3d45;--btn2:#4a4e58;--pop:#33363d;--scr:#111;--inp:#16171a;--barbg:rgba(42,44,49,.96)}
+body.light{--bg:#eceef2;--bar:#ffffff;--fg:#1c1d20;--dim:#5d6470;--line:#d3d7de;--btn:#e2e5ea;--btn2:#d0d4db;--pop:#ffffff;--scr:#cfd3da;--inp:#f2f3f5;--barbg:rgba(255,255,255,.96)}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
-  font:15px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;
+html{background:none}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--fg);font:15px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 #app{position:relative;height:100%;overflow:hidden}
 /* bars float over the page: showing/hiding them never re-lays-out the document */
 .bar{position:absolute;left:0;right:0;z-index:3;height:var(--bh);display:flex;align-items:center;gap:6px;padding:0 6px;
-  background:rgba(42,44,49,.96);transition:transform .22s ease,opacity .22s ease;will-change:transform,opacity}
+  background:var(--barbg);transition:transform .22s ease,opacity .22s ease;will-change:transform,opacity}
 #top{top:0;border-bottom:1px solid var(--line)}
 #bot{bottom:0;border-top:1px solid var(--line);display:none;gap:10px;padding:0 12px}
 body.hasdoc #bot{display:flex}
-body.nobars #top{transform:translateY(-100%);opacity:0;pointer-events:none}
-body.nobars #bot{transform:translateY(100%);opacity:0;pointer-events:none}
-button{font:inherit;color:var(--fg);background:#3a3d45;border:0;border-radius:10px;padding:9px 14px;min-height:40px}
-button:active{background:#4a4e58}
+body.nobars #top,body.fs #top{transform:translateY(-100%);opacity:0;pointer-events:none}
+body.nobars #bot,body.fs #bot{transform:translateY(100%);opacity:0;pointer-events:none}
+button{font:inherit;color:var(--fg);background:var(--btn);border:0;border-radius:10px;padding:9px 14px;min-height:40px}
+button:active{background:var(--btn2)}
 button.acc{background:var(--acc);color:#fff;font-weight:600}
 button.ib{width:40px;height:34px;min-height:0;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;border-radius:8px}
-button.ib:active{background:#3a3d45}
+button.ib:active{background:var(--btn)}
 button.ib svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-#menu{position:absolute;left:6px;top:calc(var(--bh) + 4px);z-index:6;min-width:230px;background:#33363d;border:1px solid var(--line);border-radius:12px;
+#menu{position:absolute;left:6px;top:calc(var(--bh) + 4px);z-index:6;min-width:240px;max-height:calc(100% - var(--bh) - 12px);overflow:auto;background:var(--pop);border:1px solid var(--line);border-radius:12px;
   padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);transform-origin:0 0;transform:scale(.92);opacity:0;pointer-events:none;transition:transform .14s ease,opacity .14s ease}
 body.menu #menu{transform:none;opacity:1;pointer-events:auto}
 #scrim{position:absolute;left:0;right:0;top:0;bottom:0;z-index:5;display:none}
 body.menu #scrim{display:block}
 .mi{display:flex;align-items:center;gap:14px;width:100%;min-height:46px;padding:0 12px;border-radius:8px;background:transparent;text-align:left;font-size:15px}
-.mi:active{background:#454953}
+.mi:active{background:var(--btn2)}
 .mi svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;color:var(--dim)}
-#about,#hist{position:absolute;left:0;right:0;top:0;bottom:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
-#about.on,#hist.on{display:flex}
-#about .card,#hist .card{width:min(86vw,340px);background:#2f3238;border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:10px}
-#about .ttl{font-size:22px;font-weight:700}
-#about .ver{color:var(--dim);font-size:14px;margin-bottom:6px}
-#about button,#hist .card>button{width:100%}
-#hlist{max-height:55vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
-.hi{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:8px 12px;min-height:50px}
+.mi .sw{margin-left:auto;width:42px;height:24px;border-radius:12px;background:var(--btn2);position:relative;flex:none;transition:background .15s}
+.mi .sw i{position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
+body.pro #m-pro .sw{background:var(--acc)}
+body.pro #m-pro .sw i{transform:translateX(18px)}
+.pr{display:none!important}
+body.pro .pr{display:flex!important}
+hr.sep{border:0;border-top:1px solid var(--line);margin:4px 6px}
+/* dialogs */
+.modal{position:absolute;left:0;right:0;top:0;bottom:0;z-index:8;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+.modal.on{display:flex}
+.modal .card{width:min(88vw,360px);max-height:86%;background:var(--pop);border:1px solid var(--line);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.modal .ttl{font-size:21px;font-weight:700}
+.modal .ver,.modal .hint{color:var(--dim);font-size:14px}
+.modal .card>button{width:100%;flex:none}
+.list{overflow:auto;display:flex;flex-direction:column;gap:6px;min-height:0}
+.hi{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:8px 12px;min-height:50px;flex:none}
 .hi .hn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
 .hi .ht{color:var(--dim);font-size:12px}
-.hnone{color:var(--dim);text-align:center;padding:14px 0}
+.none{color:var(--dim);text-align:center;padding:14px 0}
+.row{display:flex;gap:8px;align-items:center}
+.row>button.grow{flex:1;text-align:left}
+.row>button.del{flex:none;width:44px;padding:0;font-size:20px}
+.ti{width:100%;text-align:left;min-height:40px;padding:6px 10px;flex:none;background:transparent}
+.ti:active{background:var(--btn2)}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;padding:8px 6px;min-height:38px}
+.seg button.on{background:var(--acc);color:#fff;font-weight:600}
+.lblr{color:var(--dim);font-size:13px;margin-top:4px}
+#bright{width:100%;accent-color:var(--acc);margin:0;height:28px}
+#ttext{width:100%;height:46vh;resize:none;font:15px/1.4 system-ui,sans-serif;color:var(--fg);background:var(--inp);border:1px solid var(--line);border-radius:10px;padding:10px;-webkit-user-select:text;user-select:text}
+#pwd{font:inherit;color:var(--fg);background:var(--inp);border:1px solid var(--line);border-radius:10px;padding:10px 12px;-webkit-user-select:text;user-select:text}
 body:not(.hasdoc) .needdoc{opacity:.4;pointer-events:none}
 #sbar{top:0;z-index:4;transform:translateY(-100%);opacity:0;pointer-events:none;background:var(--bar)}
 body.searching #sbar{transform:none;opacity:1;pointer-events:auto}
 body.searching #top{opacity:0;pointer-events:none}
-#sq{flex:1;min-width:0;height:32px;font:inherit;color:var(--fg);background:#16171a;border:1px solid var(--line);border-radius:8px;padding:0 10px;-webkit-user-select:text;user-select:text}
+#sq{flex:1;min-width:0;height:32px;font:inherit;color:var(--fg);background:var(--inp);border:1px solid var(--line);border-radius:8px;padding:0 10px;-webkit-user-select:text;user-select:text}
 #scount{min-width:52px;text-align:center;color:var(--dim);font-size:13px;white-space:nowrap}
 .hl{position:absolute;background:rgba(255,214,0,.38);border-radius:2px;pointer-events:none;mix-blend-mode:multiply}
 body.night .hl{background:rgba(255,214,0,.45);mix-blend-mode:screen}
 .hl.cur{background:rgba(255,120,0,.55)}
 body.night .hl.cur{background:rgba(255,140,0,.6)}
+.lk{position:absolute;display:block;z-index:2}
 #sun{display:none}
 body.night #sun{display:block}
 body.night #moon{display:none}
 #title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:14px}
-#scroller{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;background:#111;touch-action:pan-x pan-y;display:none;overscroll-behavior:contain}
+#scroller{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;background:var(--scr);touch-action:pan-x pan-y;display:none;overscroll-behavior:contain}
 body.hasdoc #scroller{display:block}
 #scroller::-webkit-scrollbar{display:none}
 #pages{position:relative;width:100%;padding-top:var(--bh);padding-bottom:var(--bh)}
 .pg{position:relative;width:100%;height:0;background:#fff;margin:0 0 1.2%;contain:layout paint style}
 .pg img{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none}
-.pg .ph{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:20px}
+.pg .ph{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#bbb;font-size:20px}
 .pg.on .ph{display:none}
 body.night .pg{background:#000}
+body.sepia .pg{background:#efe3c8}
 #empty{position:absolute;left:0;right:0;top:var(--bh);bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center}
 body.hasdoc #empty{display:none}
 #empty .big{font-size:26px;font-weight:700;letter-spacing:.3px}
 #empty .msg{color:var(--dim);max-width:30em}
 #empty .err{color:#ff8a80}
 #slider{flex:1;min-width:0;accent-color:var(--acc);height:28px;margin:0}
-#lbl{min-width:70px;text-align:center;background:#3a3d45;border-radius:8px;padding:5px 8px;font-size:14px;font-variant-numeric:tabular-nums}
-#jump{position:fixed;left:0;right:0;bottom:0;display:none;gap:10px;padding:12px;background:var(--bar);border-top:1px solid var(--line);z-index:5}
+#lbl{min-width:70px;text-align:center;background:var(--btn);border-radius:8px;padding:5px 8px;font-size:14px;font-variant-numeric:tabular-nums}
+#jump{position:fixed;left:0;right:0;bottom:0;display:none;gap:10px;padding:12px;background:var(--bar);border-top:1px solid var(--line);z-index:9}
 #jump.on{display:flex}
-#jump input{flex:1;min-width:0;font:inherit;color:var(--fg);background:#16171a;border:1px solid var(--line);border-radius:10px;padding:9px 12px;-webkit-user-select:text;user-select:text}
+#jump input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--inp);border:1px solid var(--line);border-radius:10px;padding:9px 12px;-webkit-user-select:text;user-select:text}
+/* full screen: the only way out is this cross, always visible in the top right corner */
+#fsx{position:fixed;top:10px;right:10px;z-index:10;display:none;width:46px;height:46px;min-height:0;padding:0;border-radius:50%;
+  align-items:center;justify-content:center;background:rgba(0,0,0,.6);color:#fff;border:1px solid rgba(255,255,255,.35)}
+#fsx svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+body.fs #fsx{display:flex}
 </style>
 </head>
 <body>
@@ -94,23 +124,79 @@ body.hasdoc #empty{display:none}
   </div>
   <div id="scrim"></div>
   <div id="menu">
+    <button class="mi" id="m-pro"><svg viewBox="0 0 24 24"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg>Pro-режим<span class="sw"><i></i></span></button>
+    <hr class="sep">
     <button class="mi" id="m-open"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Открыть</button>
     <button class="mi" id="m-hist"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg>История</button>
     <button class="mi" id="night"><svg id="moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg><svg id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span id="nlbl">Ночной режим</span></button>
     <button class="mi needdoc" id="m-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l5 5"/></svg>Поиск</button>
     <button class="mi needdoc" id="m-share"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6"/></svg>Поделиться</button>
     <button class="mi needdoc" id="m-save"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>Сохранить как…</button>
+    <hr class="sep pr">
+    <button class="mi pr needdoc" id="m-bm"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>Закладки</button>
+    <button class="mi pr needdoc" id="m-toc"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>Оглавление</button>
+    <button class="mi pr needdoc" id="m-txt"><svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14M9 19h6"/></svg>Текст страницы</button>
+    <button class="mi pr needdoc" id="m-print"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>Печать</button>
+    <button class="mi pr" id="m-look"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.4-1-2.5 0-.9.7-1.6 1.7-1.6H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></svg>Внешний вид</button>
+    <button class="mi pr" id="m-fs"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Полный экран</button>
+    <hr class="sep">
     <button class="mi" id="m-about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.2"/></svg>О приложении</button>
   </div>
-  <div id="hist">
+  <div class="modal" id="hist">
     <div class="card">
       <div class="ttl">История</div>
-      <div id="hlist"></div>
+      <div class="list" id="hlist"></div>
       <button id="h-clear">Очистить историю</button>
       <button id="h-close">Закрыть</button>
     </div>
   </div>
-  <div id="about">
+  <div class="modal" id="bm">
+    <div class="card">
+      <div class="ttl">Закладки</div>
+      <button class="acc" id="bm-add">Добавить закладку</button>
+      <div class="list" id="bmlist"></div>
+      <button id="bm-close">Закрыть</button>
+    </div>
+  </div>
+  <div class="modal" id="toc">
+    <div class="card">
+      <div class="ttl">Оглавление</div>
+      <div class="list" id="toclist"></div>
+      <button id="toc-close">Закрыть</button>
+    </div>
+  </div>
+  <div class="modal" id="txt">
+    <div class="card">
+      <div class="ttl" id="txtt">Текст страницы</div>
+      <textarea id="ttext" readonly></textarea>
+      <div class="hint">Можно выделить часть текста пальцем или скопировать всё.</div>
+      <button class="acc" id="txt-copy">Копировать всё</button>
+      <button id="txt-close">Закрыть</button>
+    </div>
+  </div>
+  <div class="modal" id="look">
+    <div class="card">
+      <div class="ttl">Внешний вид</div>
+      <div class="lblr">Страницы</div>
+      <div class="seg" id="seg-mode"><button data-v="0">День</button><button data-v="2">Сепия</button><button data-v="1">Ночь</button></div>
+      <div class="lblr">Оформление приложения</div>
+      <div class="seg" id="seg-theme"><button data-v="dark">Тёмное</button><button data-v="light">Светлое</button></div>
+      <div class="lblr">Яркость экрана</div>
+      <input type="range" id="bright" min="5" max="100" value="60">
+      <button id="bright-auto">Яркость как в системе</button>
+      <button id="look-close">Готово</button>
+    </div>
+  </div>
+  <div class="modal" id="pass">
+    <div class="card">
+      <div class="ttl">Пароль</div>
+      <div class="hint" id="passmsg">Документ защищён паролем.</div>
+      <input id="pwd" type="password" placeholder="Пароль" autocomplete="off">
+      <button class="acc" id="pass-ok">Открыть</button>
+      <button id="pass-no">Отмена</button>
+    </div>
+  </div>
+  <div class="modal" id="about">
     <div class="card">
       <div class="ttl">UltraPDF</div>
       <div class="ver" id="aver"></div>
@@ -120,6 +206,7 @@ body.hasdoc #empty{display:none}
       <button id="a-close">Закрыть</button>
     </div>
   </div>
+  <button id="fsx" title="Выйти из полного экрана" aria-label="Выйти из полного экрана"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   <div id="empty">
     <div class="big">UltraPDF</div>
     <div class="msg" id="emsg">Открой PDF-файл из памяти телефона. Файл никуда не отправляется.</div>
@@ -151,22 +238,57 @@ body.hasdoc #empty{display:none}
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  /* ---------- night mode ---------- */
-  var night = lsGet('night') === '1';
-  function applyNight() {
-    document.body.classList.toggle('night', night);
-    $('nlbl').textContent = night ? 'Дневной режим' : 'Ночной режим';
+  /* ---------- Pro switch and look: reading mode, interface theme, brightness ---------- */
+  var body = document.body;
+  var pro = lsGet('pro') === '1';
+  var mode = parseInt(lsGet('mode') || '0', 10) || 0;          // 0 day, 1 night, 2 sepia
+  var theme = lsGet('theme') === 'light' ? 'light' : 'dark';
+  var bright = parseInt(lsGet('bright') || '0', 10) || 0;      // 0 = as in the system
+  // in the normal mode only day/night, dark theme and system brightness exist
+  function look() { return pro ? mode : (mode === 1 ? 1 : 0); }
+  function effTheme() { return pro ? theme : 'dark'; }
+  function effBright() { return pro ? bright : 0; }
+  function applyLook() {
+    var m = look();
+    body.classList.toggle('night', m === 1);
+    body.classList.toggle('sepia', m === 2);
+    body.classList.toggle('light', effTheme() === 'light');
+    body.classList.toggle('pro', pro);
+    $('nlbl').textContent = m === 1 ? 'Дневной режим' : 'Ночной режим';
+    try { A.theme(effTheme() === 'light'); A.brightness(effBright()); } catch (e) {}
+    var sm = $('seg-mode').children; for (var i = 0; i < sm.length; i++) sm[i].classList.toggle('on', +sm[i].dataset.v === m);
+    var st = $('seg-theme').children; for (i = 0; i < st.length; i++) st[i].classList.toggle('on', st[i].dataset.v === effTheme());
+    if (effBright() > 0) $('bright').value = String(effBright());
   }
-  // pages are inverted natively (Java side), so a switch just asks for fresh renders
-  $('night').addEventListener('click', function () { closeMenu(); night = !night; lsSet('night', night ? '1' : '0'); applyNight(); schedule(); });
-  applyNight();
+  function setMode(m) { mode = m; lsSet('mode', String(m)); applyLook(); schedule(); }
+  // pages are tinted natively (Java side), so a switch just asks for fresh renders
+  $('night').addEventListener('click', function () { closeMenu(); setMode(look() === 1 ? 0 : 1); });
+  $('m-pro').addEventListener('click', function () {
+    pro = !pro; lsSet('pro', pro ? '1' : '0');
+    if (!pro) { if (body.classList.contains('fs')) exitFs(); closeAllDialogs(); }
+    applyLook(); schedule();
+    if (pro) for (var k in imgs) if (imgs[k].img && els[k] && els[k].classList.contains('on')) ensureLinks(+k);
+  });
+  var segM = $('seg-mode').children, segT = $('seg-theme').children;
+  for (var si = 0; si < segM.length; si++) segM[si].addEventListener('click', function (e) { setMode(+e.target.dataset.v); });
+  for (si = 0; si < segT.length; si++) segT[si].addEventListener('click', function (e) { theme = e.target.dataset.v; lsSet('theme', theme); applyLook(); });
+  $('bright').addEventListener('input', function () { bright = parseInt($('bright').value, 10) || 0; lsSet('bright', String(bright)); applyLook(); });
+  $('bright-auto').addEventListener('click', function () { bright = 0; lsSet('bright', '0'); applyLook(); });
+  $('m-look').addEventListener('click', function () { closeMenu(); openModal('look'); });
+  $('look-close').addEventListener('click', function () { closeModal('look'); });
+
+  /* ---------- dialogs ---------- */
+  var MODALS = ['hist', 'bm', 'toc', 'txt', 'look', 'pass', 'about'];
+  function openModal(id) { $(id).classList.add('on'); }
+  function closeModal(id) { $(id).classList.remove('on'); }
+  function closeAllDialogs() { for (var i = 0; i < MODALS.length; i++) closeModal(MODALS[i]); }
+  MODALS.forEach(function (id) { $(id).addEventListener('click', function (e) { if (e.target === $(id) && id !== 'pass') closeModal(id); }); });
 
   /* ---------- opening files ---------- */
   function pick() { try { A.pick(); } catch (e) { showEmpty('Не удалось открыть выбор файла.', true); } }
   $('open2').addEventListener('click', pick);
 
   /* ---------- hamburger menu ---------- */
-  var body = document.body;
   function closeMenu() { body.classList.remove('menu'); }
   $('burger').addEventListener('click', function () { body.classList.toggle('menu'); });
   $('scrim').addEventListener('click', closeMenu);
@@ -174,9 +296,16 @@ body.hasdoc #empty{display:none}
   $('m-share').addEventListener('click', function () { closeMenu(); try { A.share(); } catch (e) {} });
   $('m-save').addEventListener('click', function () { closeMenu(); try { A.saveAs(); } catch (e) {} });
   $('m-search').addEventListener('click', function () { closeMenu(); openSearch(); });
+  $('m-print').addEventListener('click', function () { closeMenu(); try { A.print(); } catch (e) {} });
+  $('m-fs').addEventListener('click', function () { closeMenu(); enterFs(); });
+  $('fsx').addEventListener('click', exitFs);
+
+  /* ---------- full screen: entered only from the menu, left only with the cross (or Back) ---------- */
+  function enterFs() { body.classList.add('fs'); body.classList.remove('menu'); try { A.fullscreen(true); } catch (e) {} }
+  function exitFs() { body.classList.remove('fs'); try { A.fullscreen(false); } catch (e) {} }
 
   /* ---------- history: the 10 last opened documents (kept by the app) ---------- */
-  var histEl = $('hist'), hlist = $('hlist');
+  var hlist = $('hlist');
   function p2(n) { return (n < 10 ? '0' : '') + n; }
   function fmtTime(t) { var d = new Date(t); return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
   function histItem(idx, h) {
@@ -185,7 +314,7 @@ body.hasdoc #empty{display:none}
     var n = document.createElement('div'); n.className = 'hn'; n.textContent = cleanName(h.n);
     var t = document.createElement('div'); t.className = 'ht'; t.textContent = fmtTime(h.t);
     b.appendChild(n); b.appendChild(t);
-    b.addEventListener('click', function () { histEl.classList.remove('on'); try { A.openHistory(idx); } catch (e) {} });
+    b.addEventListener('click', function () { closeModal('hist'); try { A.openHistory(idx); } catch (e) {} });
     return b;
   }
   function showHist() {
@@ -193,29 +322,26 @@ body.hasdoc #empty{display:none}
     try { list = JSON.parse(A.history()) || []; } catch (e) { list = []; }
     hlist.innerHTML = '';
     if (!list.length) {
-      var e0 = document.createElement('div'); e0.className = 'hnone'; e0.textContent = 'Пока пусто';
+      var e0 = document.createElement('div'); e0.className = 'none'; e0.textContent = 'Пока пусто';
       hlist.appendChild(e0);
     }
     for (var i = 0; i < list.length; i++) hlist.appendChild(histItem(i, list[i]));
-    histEl.classList.add('on');
+    openModal('hist');
   }
   $('m-hist').addEventListener('click', function () { closeMenu(); showHist(); });
-  $('h-close').addEventListener('click', function () { histEl.classList.remove('on'); });
+  $('h-close').addEventListener('click', function () { closeModal('hist'); });
   $('h-clear').addEventListener('click', function () { try { A.clearHistory(); } catch (e) {} showHist(); });
-  histEl.addEventListener('click', function (e) { if (e.target === histEl) histEl.classList.remove('on'); });
 
   /* ---------- about ---------- */
-  var aboutEl = $('about');
   $('m-about').addEventListener('click', function () {
     closeMenu();
     var v = '';
     try { v = 'Версия ' + A.version(); } catch (e) {}
     $('aver').textContent = v;
-    aboutEl.classList.add('on');
+    openModal('about');
   });
-  $('a-close').addEventListener('click', function () { aboutEl.classList.remove('on'); });
-  aboutEl.addEventListener('click', function (e) { if (e.target === aboutEl) aboutEl.classList.remove('on'); });
-  $('a-upd').addEventListener('click', function () { aboutEl.classList.remove('on'); try { A.checkUpdate(); } catch (e) {} });
+  $('a-close').addEventListener('click', function () { closeModal('about'); });
+  $('a-upd').addEventListener('click', function () { closeModal('about'); try { A.checkUpdate(); } catch (e) {} });
   $('a-share').addEventListener('click', function () { try { A.shareApp(); } catch (e) {} });
   $('a-git').addEventListener('click', function () { try { A.github(); } catch (e) {} });
 
@@ -253,8 +379,8 @@ body.hasdoc #empty{display:none}
 
   function build() {
     pagesEl.innerHTML = '';
-    els = []; imgs = {}; cur = 0; sized = false; z = 1; pw = []; ph = [];
-    closeSearch(); closeMenu();
+    els = []; imgs = {}; cur = 0; sized = false; z = 1; pw = []; ph = []; lkDone = {};
+    closeSearch(); closeMenu(); closeAllDialogs();
     pagesEl.style.width = '100%';
     sc.scrollTop = 0; sc.scrollLeft = 0;
     var w0 = 595, h0 = 842;
@@ -318,7 +444,7 @@ body.hasdoc #empty{display:none}
     var c = indexAt(sc.scrollTop + h * 0.35), best = -1, bd = 1e9;
     for (var i = first; i <= last; i++) {
       var r = imgs[i];
-      if (!r || r.q < tw * 0.8 || r.n !== night) {
+      if (!r || r.q < tw * 0.8 || r.n !== look()) {
         var d = Math.abs(i - c);
         if (d < bd) { bd = d; best = i; }
       }
@@ -331,20 +457,20 @@ body.hasdoc #empty{display:none}
   // pages arrive as plain images from the app (https://pdf.local/..., answered natively off the JS thread)
   function renderPage(i, tw) {
     var r = imgs[i] || (imgs[i] = {});
-    r.q = tw; r.n = night;           // even a failed page is not retried in a loop
+    r.q = tw; r.n = look();          // even a failed page is not retried in a loop
     var img = r.img;
     if (!img) {
       img = r.img = document.createElement('img');
       img.alt = ''; img.decoding = 'async'; img.draggable = false;
       img.onload = function () {
         if (imgs[i] !== r) return;
-        r.busy = false; els[i].classList.add('on'); schedule();
+        r.busy = false; els[i].classList.add('on'); schedule(); ensureLinks(i);
       };
       img.onerror = function () { if (imgs[i] !== r) return; r.busy = false; schedule(); };
       els[i].appendChild(img);
     }
     r.busy = true; r.t = Date.now();
-    img.src = 'https://pdf.local/p/' + i + '.jpg?w=' + tw + '&n=' + (night ? 1 : 0) + '&g=' + gen;
+    img.src = 'https://pdf.local/p/' + i + '.jpg?w=' + tw + '&n=' + look() + '&g=' + gen;
   }
 
   // decoded pages are big: the zoomier the view, the fewer of them are kept
@@ -475,6 +601,7 @@ body.hasdoc #empty{display:none}
         tapT = 0; lastTap = 0;
         if (body.classList.contains('menu')) { closeMenu(); return; }
         if (body.classList.contains('searching')) { try { sinput.blur(); } catch (e) {} return; }
+        if (body.classList.contains('fs')) return;
         body.classList.toggle('nobars');   // both bars slide away / back (CSS transition)
       }, 300);
     }
@@ -584,11 +711,223 @@ body.hasdoc #empty{display:none}
     if (e.key === 'Enter') { if (sT) { clearTimeout(sT); sT = 0; } if (sinput.value.trim() !== sq) startSearch(); else stepMatch(1); try { sinput.blur(); } catch (x) {} }
   });
 
+  /* ---------- pdf.js: outline, links and page text (loaded on demand, runs in a worker) ---------- */
+  /*PDFJS-HELPERS-BEGIN*/
+  function pdfResolveDest(doc, dest) {          // -> Promise<page index, or -1>
+    var p = typeof dest === 'string' ? doc.getDestination(dest) : Promise.resolve(dest);
+    return p.then(function (d) {
+      if (!d || !d.length) return -1;
+      var r = d[0];
+      if (typeof r === 'number') return r;
+      return doc.getPageIndex(r);
+    }).catch(function () { return -1; });
+  }
+  function pdfOutline(doc) {                    // -> Promise<[{title, dest, url, items}]>
+    return doc.getOutline().then(function (o) { return o || []; });
+  }
+  function pdfLinks(doc, i) {                   // -> Promise<[{r:[x0,y0,x1,y1], vw, vh, dest, url}]>, top-left origin, points
+    return doc.getPage(i + 1).then(function (page) {
+      var vp = page.getViewport({ scale: 1 });
+      return page.getAnnotations({ intent: 'display' }).then(function (anns) {
+        var out = [];
+        anns.forEach(function (a) {
+          if (a.subtype !== 'Link' || !a.rect) return;
+          var rc = vp.convertToViewportRectangle(a.rect);
+          var dest = a.dest || null, url = a.url || a.unsafeUrl || null;
+          if (!dest && !url) return;
+          out.push({ r: [Math.min(rc[0], rc[2]), Math.min(rc[1], rc[3]), Math.max(rc[0], rc[2]), Math.max(rc[1], rc[3])],
+                     vw: vp.width, vh: vp.height, dest: dest, url: url });
+        });
+        return out;
+      });
+    });
+  }
+  function pdfText(doc, i) {                    // -> Promise<string>
+    return doc.getPage(i + 1).then(function (page) { return page.getTextContent(); }).then(function (tc) {
+      var t = '';
+      tc.items.forEach(function (it) { t += it.str; if (it.hasEOL) t += '\n'; });
+      return t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    });
+  }
+  /*PDFJS-HELPERS-END*/
+
+  var pdfDocP = null, pdfDocGen = -1, pdfLibP = null, docPassword = '', pendingPw = '';
+  function pdfLib() {
+    if (pdfLibP) return pdfLibP;
+    pdfLibP = new Promise(function (res, rej) {
+      var sct = document.createElement('script');
+      sct.src = '/app/pdfjs/pdf.js';
+      sct.onload = function () {
+        var lib = window.pdfjsLib;
+        if (!lib) { rej(new Error('pdf.js missing')); return; }
+        lib.GlobalWorkerOptions.workerSrc = '/app/pdfjs/pdf.worker.js';
+        res(lib);
+      };
+      sct.onerror = function () { pdfLibP = null; rej(new Error('pdf.js load failed')); };
+      document.head.appendChild(sct);
+    });
+    return pdfLibP;
+  }
+  // the document is streamed to pdf.js by the app with Range support, so only the needed parts are read
+  function pdfDoc() {
+    if (pdfDocP && pdfDocGen === gen) return pdfDocP;
+    pdfDocGen = gen;
+    var g = gen, pw = docPassword;
+    pdfDocP = pdfLib().then(function (lib) {
+      return lib.getDocument({ url: '/doc/' + g + '.pdf?g=' + g, password: pw || undefined,
+        rangeChunkSize: 131072, disableAutoFetch: true, disableStream: true }).promise;
+    });
+    pdfDocP.catch(function () { if (pdfDocGen === g) pdfDocP = null; });
+    return pdfDocP;
+  }
+
+  /* ---------- links inside the document (Pro) ---------- */
+  var lkDone = {};
+  function ensureLinks(i) {
+    if (!pro || lkDone[i] || !els[i]) return;
+    lkDone[i] = 1;
+    var g = gen;
+    pdfDoc().then(function (doc) { return pdfLinks(doc, i).then(function (list) { return { doc: doc, list: list }; }); })
+      .then(function (res) { if (g === gen) paintLinks(i, res.doc, res.list); })
+      .catch(function () { lkDone[i] = 0; });
+  }
+  function paintLinks(i, doc, list) {
+    for (var k = 0; k < list.length; k++) {
+      var l = list[k], a = document.createElement('a');
+      a.className = 'lk';
+      a.style.left = (l.r[0] / l.vw * 100) + '%';
+      a.style.top = (l.r[1] / l.vh * 100) + '%';
+      a.style.width = ((l.r[2] - l.r[0]) / l.vw * 100) + '%';
+      a.style.height = ((l.r[3] - l.r[1]) / l.vh * 100) + '%';
+      a.addEventListener('click', linkHandler(doc, l));
+      els[i].appendChild(a);
+    }
+  }
+  function linkHandler(doc, l) {
+    return function (e) {
+      if (e.stopPropagation) e.stopPropagation();
+      if (l.url) { try { A.openUrl(l.url); } catch (x) {} return; }
+      pdfResolveDest(doc, l.dest).then(function (idx) { if (idx >= 0) goTo(idx); });
+    };
+  }
+
+  /* ---------- table of contents (Pro) ---------- */
+  var toclist = $('toclist');
+  function msgIn(el, text) { el.innerHTML = ''; var d = document.createElement('div'); d.className = 'none'; d.textContent = text; el.appendChild(d); }
+  function addTocItems(items, depth, doc, count) {
+    for (var k = 0; k < items.length && count.n < 600; k++) {
+      count.n++;
+      var it = items[k], b = document.createElement('button');
+      b.className = 'ti'; b.textContent = it.title || '—';
+      b.style.paddingLeft = (10 + Math.min(depth, 6) * 16) + 'px';
+      b.addEventListener('click', tocHandler(doc, it));
+      toclist.appendChild(b);
+      if (it.items && it.items.length) addTocItems(it.items, depth + 1, doc, count);
+    }
+  }
+  function tocHandler(doc, it) {
+    return function () {
+      closeModal('toc');
+      if (it.url) { try { A.openUrl(it.url); } catch (e) {} return; }
+      if (it.dest) pdfResolveDest(doc, it.dest).then(function (idx) { if (idx >= 0) goTo(idx); });
+    };
+  }
+  $('m-toc').addEventListener('click', function () {
+    closeMenu(); openModal('toc'); msgIn(toclist, 'Загрузка…');
+    var g = gen;
+    pdfDoc().then(function (doc) { return pdfOutline(doc).then(function (o) { return { doc: doc, o: o }; }); }).then(function (r) {
+      if (g !== gen) return;
+      if (!r.o.length) { msgIn(toclist, 'В документе нет оглавления'); return; }
+      toclist.innerHTML = '';
+      addTocItems(r.o, 0, r.doc, { n: 0 });
+    }).catch(function () { msgIn(toclist, 'Не удалось прочитать оглавление'); });
+  });
+  $('toc-close').addEventListener('click', function () { closeModal('toc'); });
+
+  /* ---------- page text (Pro) ---------- */
+  $('m-txt').addEventListener('click', function () {
+    closeMenu();
+    var i = cur, ta = $('ttext');
+    $('txtt').textContent = 'Текст страницы ' + (i + 1);
+    ta.value = 'Загрузка…';
+    openModal('txt');
+    pdfDoc().then(function (doc) { return pdfText(doc, i); }).then(function (t) {
+      ta.value = t || 'На этой странице нет текста (возможно, это скан).';
+    }).catch(function () { ta.value = 'Не удалось прочитать текст.'; });
+  });
+  $('txt-copy').addEventListener('click', function () {
+    var t = $('ttext').value;
+    if (t && !/^(Загрузка|На этой странице нет|Не удалось)/.test(t)) { try { A.copy(t); } catch (e) {} }
+  });
+  $('txt-close').addEventListener('click', function () { closeModal('txt'); });
+
+  /* ---------- bookmarks (Pro): page numbers per document, kept on this phone ---------- */
+  function bmKey() { return 'bm:' + name + ':' + N; }
+  function bmLoad() { var a = []; try { a = JSON.parse(lsGet(bmKey()) || '[]'); } catch (e) { a = []; } return Array.isArray(a) ? a : []; }
+  function bmSave(a) { a.sort(function (x, y) { return x - y; }); lsSet(bmKey(), JSON.stringify(a)); }
+  function bmRender() {
+    var a = bmLoad(), list = $('bmlist');
+    var has = a.indexOf(cur) >= 0;
+    $('bm-add').textContent = has ? 'Убрать закладку (стр. ' + (cur + 1) + ')' : 'Добавить закладку (стр. ' + (cur + 1) + ')';
+    list.innerHTML = '';
+    if (!a.length) { msgIn(list, 'Закладок пока нет'); return; }
+    a.forEach(function (pg) {
+      var row = document.createElement('div'); row.className = 'row';
+      var go = document.createElement('button'); go.className = 'grow'; go.textContent = 'Страница ' + (pg + 1);
+      go.addEventListener('click', function () { closeModal('bm'); goTo(pg); });
+      var del = document.createElement('button'); del.className = 'del'; del.textContent = '×'; del.title = 'Удалить';
+      del.addEventListener('click', function () { var b = bmLoad().filter(function (x) { return x !== pg; }); bmSave(b); bmRender(); });
+      row.appendChild(go); row.appendChild(del); list.appendChild(row);
+    });
+  }
+  $('m-bm').addEventListener('click', function () { closeMenu(); bmRender(); openModal('bm'); });
+  $('bm-add').addEventListener('click', function () {
+    var a = bmLoad(), k = a.indexOf(cur);
+    if (k >= 0) a.splice(k, 1); else a.push(cur);
+    bmSave(a); bmRender();
+  });
+  $('bm-close').addEventListener('click', function () { closeModal('bm'); });
+
+  /* ---------- password (documents protected with a password; Android 15+) ---------- */
+  function showPass(wrong) {
+    $('passmsg').textContent = wrong ? 'Неверный пароль. Попробуй ещё раз.' : 'Документ «' + name + '» защищён паролем.';
+    $('pwd').value = '';
+    openModal('pass');
+    try { $('pwd').focus(); } catch (e) {}
+  }
+  function submitPass() {
+    var pw = $('pwd').value;
+    if (!pw) return;
+    closeModal('pass'); pendingPw = pw;
+    try { A.openWithPassword(pw); } catch (e) {}
+  }
+  $('pass-ok').addEventListener('click', submitPass);
+  $('pwd').addEventListener('keydown', function (e) { if (e.key === 'Enter') submitPass(); });
+  $('pass-no').addEventListener('click', function () { closeModal('pass'); showEmpty('Файл не открыт: нужен пароль.', false); });
+
+  /* ---------- Back button: closes the topmost thing, the app only leaves when nothing is open ---------- */
+  window.onBack = function () {
+    if (body.classList.contains('menu')) { closeMenu(); return true; }
+    for (var i = 0; i < MODALS.length; i++) {
+      if ($(MODALS[i]).classList.contains('on')) {
+        closeModal(MODALS[i]);
+        if (MODALS[i] === 'pass') showEmpty('Файл не открыт: нужен пароль.', false);
+        return true;
+      }
+    }
+    if (jump.classList.contains('on')) { closeJump(); return true; }
+    if (body.classList.contains('searching')) { closeSearch(); return true; }
+    if (body.classList.contains('fs')) { exitFs(); return true; }
+    return false;
+  };
+
   /* ---------- talking to the app: poll for newly opened documents ---------- */
   function onDoc() {
     var err = 0, count = 0;
     try { err = A.err(); count = A.count(); name = cleanName(A.name()); } catch (e) { err = 1; }
     myDoc++;
+    if (err === 2 || err === 3) { pendingPw = err === 3 ? '' : pendingPw; showPass(err === 3); return; }
+    docPassword = pendingPw; pendingPw = '';
     if (err) { showEmpty('Не удалось открыть файл. Возможно, он защищён паролем, повреждён или лежит там, откуда его нельзя прочитать. Скопируй его в «Загрузки» и открой оттуда.', true); return; }
     if (!count) { showEmpty('В этом файле нет страниц.', true); return; }
     N = count;
@@ -603,6 +942,7 @@ body.hasdoc #empty{display:none}
     if (g !== gen) { gen = g; onDoc(); }
     setTimeout(poll, 400);
   }
+  applyLook();
   if (A) { poll(); }
   else { showEmpty('Это окно нужно открыть внутри приложения UltraPDF.', true); }
 })();

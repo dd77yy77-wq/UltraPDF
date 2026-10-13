@@ -1,6 +1,9 @@
 package com.dd.pdfviewer;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -10,10 +13,22 @@ import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.pdf.PdfRenderer;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentInfo;
+import android.print.PrintManager;
 import android.provider.OpenableColumns;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
+import android.webkit.ValueCallback;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -26,9 +41,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
@@ -61,6 +81,11 @@ public class MainActivity extends Activity {
     volatile int gen;
     volatile int err;
     volatile int pageCount;
+    volatile Uri pwdUri;                 // document waiting for a password
+    volatile String pendingPassword;
+    volatile boolean fullscreen;
+    volatile boolean light;
+    volatile int brightness;             // 0 = system default, else percent
 
     @Override
     protected void onCreate(Bundle b) {
@@ -74,11 +99,12 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         web.setWebViewClient(new PdfClient(this));
         web.addJavascriptInterface(new Bridge(this), "Android");
         setContentView(web);
-        web.loadUrl("file:///android_asset/index.html");
+        web.loadUrl("https://pdf.local/app/index.html");
         Updater.check(this);
         if (!handle(getIntent())) {
             // plain launch: reopen the last document, if it is still readable
@@ -88,6 +114,20 @@ public class MainActivity extends Activity {
                 pending = Uri.parse(last);
             }
         }
+    }
+
+    /** Back closes menus/dialogs/full screen first (the page decides), then leaves the app. */
+    @Override
+    public void onBackPressed() {
+        if (web == null) {
+            super.onBackPressed();
+            return;
+        }
+        web.evaluateJavascript("(function(){return window.onBack?window.onBack():false})()", new BackCallback(this));
+    }
+
+    void leave() {
+        super.onBackPressed();
     }
 
     @Override
@@ -140,6 +180,45 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    /** Full screen (system bars hidden), light/dark bars and brightness: one place computes them all. */
+    void applySystemUi() {
+        Window w = getWindow();
+        View d = w.getDecorView();
+        WindowManager.LayoutParams lp = w.getAttributes();
+        lp.screenBrightness = brightness <= 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.02f, brightness / 100f);
+        if (Build.VERSION.SDK_INT >= 28) {
+            lp.layoutInDisplayCutoutMode = !fullscreen ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                    : Build.VERSION.SDK_INT >= 30 ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+        w.setAttributes(lp);
+        w.setStatusBarColor(light ? 0xFFFFFFFF : 0xFF2A2C31);
+        w.setNavigationBarColor(light ? 0xFFECEEF2 : 0xFF1C1D20);
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = d.getWindowInsetsController();
+            if (c != null) {
+                if (fullscreen) {
+                    c.hide(WindowInsets.Type.systemBars());
+                    c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                } else {
+                    c.show(WindowInsets.Type.systemBars());
+                }
+                int m = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                c.setSystemBarsAppearance(light ? m : 0, m);
+            }
+        } else {
+            int f = View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+            if (fullscreen) {
+                f |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+            } else if (light) {
+                if (Build.VERSION.SDK_INT >= 23) f |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                if (Build.VERSION.SDK_INT >= 26) f |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            d.setSystemUiVisibility(f);
+        }
+    }
+
     void toast(String msg) {
         runOnUiThread(new ToastTask(this, msg));
     }
@@ -176,20 +255,31 @@ public class MainActivity extends Activity {
         return n == null ? "" : n;
     }
 
-    void open(Uri u, boolean restore) {
+    void open(Uri u, boolean restore, String password) {
         synchronized (lock) {
             closeDoc();
             try {
                 pfd = getContentResolver().openFileDescriptor(u, "r");
-                renderer = new PdfRenderer(pfd);
+                renderer = password == null ? new PdfRenderer(pfd) : withPassword(pfd, password);
                 pageCount = renderer.getPageCount();
                 current = u;
+                pwdUri = null;
                 name = displayName(u);
                 err = 0;
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, u.toString()).apply();
                 addHistory(u, name);
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 closeDoc();
+                Throwable c = e instanceof InvocationTargetException && e.getCause() != null ? e.getCause() : e;
+                if (c instanceof SecurityException) {
+                    // password protected (or a wrong password)
+                    pwdUri = u;
+                    current = u;
+                    name = displayName(u);
+                    err = password == null ? 2 : 3;
+                    gen++;
+                    return;
+                }
                 removeHistory(u.toString());
                 if (restore) {
                     // silent: the old file is gone or access was revoked; show the empty start screen
@@ -200,6 +290,16 @@ public class MainActivity extends Activity {
             }
             gen++;
         }
+    }
+
+    /** Android 15+: new PdfRenderer(pfd, new LoadParams.Builder().setPassword(pw).build()), by reflection. */
+    private static PdfRenderer withPassword(ParcelFileDescriptor pfd, String pw) throws Exception {
+        Class<?> lp = Class.forName("android.graphics.pdf.LoadParams");
+        Class<?> bld = Class.forName("android.graphics.pdf.LoadParams$Builder");
+        Object b = bld.getConstructor().newInstance();
+        bld.getMethod("setPassword", String.class).invoke(b, pw);
+        Object params = bld.getMethod("build").invoke(b);
+        return (PdfRenderer) PdfRenderer.class.getConstructor(ParcelFileDescriptor.class, lp).newInstance(pfd, params);
     }
 
     // ---- history of the last HIST_MAX documents: [{u:uri, n:name, t:millis}], newest first
@@ -303,8 +403,20 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Page i as JPEG (null on failure); night = inverted like CSS invert(1) hue-rotate(180deg). */
-    byte[] renderJpeg(int i, int widthPx, boolean night) {
+    // mode 1 = night: inverted like CSS invert(1) hue-rotate(180deg); mode 2 = sepia: grey tinted like warm paper
+    static final float[] NIGHT = {
+            0.574f, -1.430f, -0.144f, 0, 255,
+            -0.426f, -0.430f, -0.144f, 0, 255,
+            -0.426f, -1.430f, 0.856f, 0, 255,
+            0, 0, 0, 1, 0};
+    static final float[] SEPIA = {
+            0.299f, 0.587f, 0.114f, 0, 0,
+            0.278f, 0.546f, 0.106f, 0, 0,
+            0.233f, 0.458f, 0.089f, 0, 0,
+            0, 0, 0, 1, 0};
+
+    /** Page i as JPEG (null on failure). */
+    byte[] renderJpeg(int i, int widthPx, int mode) {
         Bitmap bmp = null;
         Bitmap out = null;
         try {
@@ -323,14 +435,10 @@ public class MainActivity extends Activity {
             }
             // everything below runs outside the lock, so the next page can already be rendering
             out = bmp;
-            if (night) {
+            if (mode == 1 || mode == 2) {
                 out = Bitmap.createBitmap(bmp.getWidth(), bmp.getHeight(), Bitmap.Config.ARGB_8888);
                 Paint paint = new Paint();
-                paint.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(new float[]{
-                        0.574f, -1.430f, -0.144f, 0, 255,
-                        -0.426f, -0.430f, -0.144f, 0, 255,
-                        -0.426f, -1.430f, 0.856f, 0, 255,
-                        0, 0, 0, 1, 0})));
+                paint.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(mode == 1 ? NIGHT : SEPIA)));
                 new Canvas(out).drawBitmap(bmp, 0, 0, paint);
                 bmp.recycle();
                 bmp = null;
@@ -417,28 +525,156 @@ public class MainActivity extends Activity {
             this.a = a;
         }
 
+        // the page never navigates anywhere: external links go through Bridge.openUrl
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+            return true;
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            return true;
+        }
+
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
             Uri u = req.getUrl();
             if (!"pdf.local".equals(u.getHost())) return null;
+            String path = u.getPath() == null ? "" : u.getPath();
             try {
-                String seg = u.getLastPathSegment();
-                int i = Integer.parseInt(seg.substring(0, seg.indexOf('.')));
-                int w = Integer.parseInt(u.getQueryParameter("w"));
-                boolean night = "1".equals(u.getQueryParameter("n"));
-                int g = Integer.parseInt(u.getQueryParameter("g"));
-                byte[] jpg = g == a.gen ? a.renderJpeg(i, w, night) : null;
-                if (jpg != null) return reply(200, "OK", "image/jpeg", jpg);
+                if (path.startsWith("/app/")) return asset(path.substring(5));
+                if (path.startsWith("/doc/")) return doc(req, u);
+                if (path.startsWith("/p/")) {
+                    String seg = u.getLastPathSegment();
+                    int i = Integer.parseInt(seg.substring(0, seg.indexOf('.')));
+                    int w = Integer.parseInt(u.getQueryParameter("w"));
+                    int mode = Integer.parseInt(u.getQueryParameter("n"));
+                    int g = Integer.parseInt(u.getQueryParameter("g"));
+                    byte[] jpg = g == a.gen ? a.renderJpeg(i, w, mode) : null;
+                    if (jpg != null) return reply(200, "OK", "image/jpeg", jpg);
+                }
             } catch (Exception ignored) {
             }
             return reply(404, "Not Found", "text/plain", new byte[0]);
         }
 
+        /** The app itself (index.html, pdf.js) is served from assets under https://pdf.local/app/. */
+        private WebResourceResponse asset(String name) throws IOException {
+            if (name.length() == 0 || name.contains("..") || !name.matches("[A-Za-z0-9._/-]+")) {
+                return reply(404, "Not Found", "text/plain", new byte[0]);
+            }
+            String type = "application/octet-stream";
+            if (name.endsWith(".html")) type = "text/html";
+            else if (name.endsWith(".js")) type = "application/javascript";
+            else if (name.endsWith(".css")) type = "text/css";
+            else if (name.endsWith(".png")) type = "image/png";
+            else if (name.endsWith(".json")) type = "application/json";
+            InputStream in;
+            try {
+                in = a.getAssets().open(name);
+            } catch (IOException e) {
+                return reply(404, "Not Found", "text/plain", new byte[0]);
+            }
+            Map<String, String> h = new HashMap<String, String>();
+            h.put("Cache-Control", "no-cache");
+            return new WebResourceResponse(type, type.startsWith("text/") || type.endsWith("javascript") ? "utf-8" : null,
+                    200, "OK", h, in);
+        }
+
+        /** The open document for pdf.js (outline, links, text): streamed from the provider, with Range support. */
+        private WebResourceResponse doc(WebResourceRequest req, Uri u) throws Exception {
+            Uri cur = a.current;
+            String gq = u.getQueryParameter("g");
+            if (cur == null || gq == null || Integer.parseInt(gq) != a.gen) {
+                return reply(404, "Not Found", "text/plain", new byte[0]);
+            }
+            ParcelFileDescriptor p = a.getContentResolver().openFileDescriptor(cur, "r");
+            try {
+                long size = p.getStatSize();
+                FileInputStream fis = new ParcelFileDescriptor.AutoCloseInputStream(p);
+                String range = req.getRequestHeaders().get("Range");
+                Map<String, String> h = new HashMap<String, String>();
+                h.put("Cache-Control", "no-store");
+                h.put("Accept-Ranges", "bytes");
+                if (size > 0 && range != null && range.startsWith("bytes=")) {
+                    String[] se = range.substring(6).split("-", -1);
+                    long start;
+                    long end;
+                    if (se[0].length() == 0 && se.length > 1 && se[1].length() > 0) {   // suffix range: the last n bytes
+                        start = Math.max(0, size - Long.parseLong(se[1]));
+                        end = size - 1;
+                    } else {
+                        start = se[0].length() == 0 ? 0 : Long.parseLong(se[0]);
+                        end = se.length < 2 || se[1].length() == 0 ? size - 1 : Math.min(Long.parseLong(se[1]), size - 1);
+                    }
+                    if (start > end || start >= size) {
+                        fis.close();
+                        h.put("Content-Range", "bytes */" + size);
+                        return new WebResourceResponse("application/pdf", null, 416, "Range Not Satisfiable", h,
+                                new ByteArrayInputStream(new byte[0]));
+                    }
+                    fis.getChannel().position(start);
+                    h.put("Content-Range", "bytes " + start + "-" + end + "/" + size);
+                    h.put("Content-Length", String.valueOf(end - start + 1));
+                    return new WebResourceResponse("application/pdf", null, 206, "Partial Content", h,
+                            new LimitedStream(fis, end - start + 1));
+                }
+                if (size > 0) h.put("Content-Length", String.valueOf(size));
+                return new WebResourceResponse("application/pdf", null, 200, "OK", h, fis);
+            } catch (Exception e) {
+                try {
+                    p.close();
+                } catch (Exception ignored) {
+                }
+                throw e;
+            }
+        }
+
         private static WebResourceResponse reply(int code, String msg, String type, byte[] data) {
             Map<String, String> h = new HashMap<String, String>();
             h.put("Cache-Control", "no-store");
-            h.put("Access-Control-Allow-Origin", "*");
             return new WebResourceResponse(type, null, code, msg, h, new ByteArrayInputStream(data));
+        }
+    }
+
+    /** Reads at most n bytes of the wrapped stream (a Range response). */
+    static class LimitedStream extends FilterInputStream {
+        private long left;
+
+        LimitedStream(InputStream in, long n) {
+            super(in);
+            left = n;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (left <= 0) return -1;
+            int r = super.read();
+            if (r >= 0) left--;
+            return r;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (left <= 0) return -1;
+            int r = super.read(b, off, (int) Math.min(len, left));
+            if (r > 0) left -= r;
+            return r;
+        }
+    }
+
+    // raw ValueCallback on purpose: a generic one makes javac emit a bridge method that d8 8.2 cannot handle
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    static class BackCallback implements ValueCallback {
+        private final MainActivity a;
+
+        BackCallback(MainActivity a) {
+            this.a = a;
+        }
+
+        @Override
+        public void onReceiveValue(Object v) {
+            if (!"true".equals(String.valueOf(v))) a.leave();
         }
     }
 
@@ -455,7 +691,9 @@ public class MainActivity extends Activity {
             Uri u = a.pending;
             if (u != null) {
                 a.pending = null;
-                a.open(u, a.pendingRestore);
+                String pw = a.pendingPassword;
+                a.pendingPassword = null;
+                a.open(u, a.pendingRestore, pw);
                 a.pendingRestore = false;
             }
             return a.gen;
@@ -488,17 +726,61 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void pick() {
-            a.runOnUiThread(new UiTask(a, 1));
+            a.runOnUiThread(new UiTask(a, 1, 0, null));
         }
 
         @JavascriptInterface
         public void share() {
-            a.runOnUiThread(new UiTask(a, 2));
+            a.runOnUiThread(new UiTask(a, 2, 0, null));
         }
 
         @JavascriptInterface
         public void saveAs() {
-            a.runOnUiThread(new UiTask(a, 3));
+            a.runOnUiThread(new UiTask(a, 3, 0, null));
+        }
+
+        @JavascriptInterface
+        public void openWithPassword(String pw) {
+            Uri u = a.pwdUri;
+            if (u == null) return;
+            a.pendingRestore = false;
+            a.pendingPassword = pw;
+            a.pending = u;
+        }
+
+        @JavascriptInterface
+        public void fullscreen(boolean on) {
+            a.fullscreen = on;
+            a.runOnUiThread(new UiTask(a, 8, 0, null));
+        }
+
+        /** Interface theme: light/dark system bars. */
+        @JavascriptInterface
+        public void theme(boolean light) {
+            a.light = light;
+            a.runOnUiThread(new UiTask(a, 8, 0, null));
+        }
+
+        /** Screen brightness in percent; 0 = system default. */
+        @JavascriptInterface
+        public void brightness(int pct) {
+            a.brightness = pct;
+            a.runOnUiThread(new UiTask(a, 8, 0, null));
+        }
+
+        @JavascriptInterface
+        public void copy(String text) {
+            a.runOnUiThread(new UiTask(a, 9, 0, text));
+        }
+
+        @JavascriptInterface
+        public void openUrl(String url) {
+            a.runOnUiThread(new UiTask(a, 10, 0, url));
+        }
+
+        @JavascriptInterface
+        public void print() {
+            a.runOnUiThread(new UiTask(a, 7, 0, null));
         }
 
         @JavascriptInterface
@@ -527,17 +809,17 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void checkUpdate() {
-            a.runOnUiThread(new UiTask(a, 4));
+            a.runOnUiThread(new UiTask(a, 4, 0, null));
         }
 
         @JavascriptInterface
         public void shareApp() {
-            a.runOnUiThread(new UiTask(a, 5));
+            a.runOnUiThread(new UiTask(a, 5, 0, null));
         }
 
         @JavascriptInterface
         public void github() {
-            a.runOnUiThread(new UiTask(a, 6));
+            a.runOnUiThread(new UiTask(a, 6, 0, null));
         }
     }
 
@@ -545,10 +827,14 @@ public class MainActivity extends Activity {
     static class UiTask implements Runnable {
         private final MainActivity a;
         private final int what;
+        private final int arg;
+        private final String str;
 
-        UiTask(MainActivity a, int what) {
+        UiTask(MainActivity a, int what, int arg, String str) {
             this.a = a;
             this.what = what;
+            this.arg = arg;
+            this.str = str;
         }
 
         @Override
@@ -588,9 +874,79 @@ public class MainActivity extends Activity {
                     a.startActivity(Intent.createChooser(send, "Поделиться приложением"));
                 } else if (what == 6) {
                     a.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO)));
+                } else if (what == 7) {
+                    if (a.current == null) return;
+                    String n = a.name == null || a.name.length() == 0 ? "document" : a.name;
+                    PrintManager pm = (PrintManager) a.getSystemService(Context.PRINT_SERVICE);
+                    pm.print(n, new PrintAdapter(a, a.current, n), null);
+                } else if (what == 8) {
+                    a.applySystemUi();
+                } else if (what == 9) {
+                    ClipboardManager cm = (ClipboardManager) a.getSystemService(Context.CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("UltraPDF", str));
+                    Toast.makeText(a, "Скопировано", Toast.LENGTH_SHORT).show();
+                } else if (what == 10) {
+                    String s = str == null ? "" : str.trim();
+                    String low = s.toLowerCase();
+                    if (low.startsWith("http://") || low.startsWith("https://") || low.startsWith("mailto:") || low.startsWith("tel:")) {
+                        a.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(s)));
+                    }
                 }
             } catch (Exception e) {
                 a.toast(what == 2 ? "Не удалось поделиться этим файлом" : "Не удалось выполнить действие");
+            }
+        }
+    }
+
+    /** Print: hands the original PDF to the system print service. */
+    static class PrintAdapter extends PrintDocumentAdapter {
+        private final MainActivity a;
+        private final Uri src;
+        private final String title;
+
+        PrintAdapter(MainActivity a, Uri src, String title) {
+            this.a = a;
+            this.src = src;
+            this.title = title;
+        }
+
+        @Override
+        public void onLayout(PrintAttributes oldAttrs, PrintAttributes newAttrs, CancellationSignal cancel,
+                             LayoutResultCallback cb, Bundle extras) {
+            if (cancel.isCanceled()) {
+                cb.onLayoutCancelled();
+                return;
+            }
+            cb.onLayoutFinished(new PrintDocumentInfo.Builder(title.endsWith(".pdf") ? title : title + ".pdf")
+                    .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                    .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN).build(), true);
+        }
+
+        @Override
+        public void onWrite(PageRange[] pages, ParcelFileDescriptor dest, CancellationSignal cancel, WriteResultCallback cb) {
+            InputStream in = null;
+            OutputStream out = null;
+            try {
+                in = a.getContentResolver().openInputStream(src);
+                out = new FileOutputStream(dest.getFileDescriptor());
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    if (cancel.isCanceled()) {
+                        cb.onWriteCancelled();
+                        return;
+                    }
+                    out.write(buf, 0, n);
+                }
+                out.flush();
+                cb.onWriteFinished(new PageRange[]{PageRange.ALL_PAGES});
+            } catch (Exception e) {
+                cb.onWriteFailed(e.getMessage());
+            } finally {
+                try {
+                    if (in != null) in.close();
+                } catch (Exception ignored) {
+                }
             }
         }
     }
