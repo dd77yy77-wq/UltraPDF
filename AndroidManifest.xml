@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.dd.pdfviewer">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>
+    <application android:label="PDF Читалка" android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true" android:theme="@style/AppTheme">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|uiMode|density|fontScale|layoutDirection|locale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content" android:mimeType="application/pdf"/>
+                <data android:scheme="file" android:mimeType="application/pdf"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
