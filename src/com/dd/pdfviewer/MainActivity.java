@@ -192,6 +192,8 @@ public class MainActivity extends Activity {
                     : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         w.setAttributes(lp);
+        // Without this the system keeps the page out of the camera cut-out area even when the bars are hidden.
+        if (Build.VERSION.SDK_INT >= 30) w.setDecorFitsSystemWindows(!fullscreen);
         w.setStatusBarColor(light ? 0xFFFFFFFF : 0xFF2A2C31);
         w.setNavigationBarColor(light ? 0xFFECEEF2 : 0xFF1C1D20);
         if (Build.VERSION.SDK_INT >= 30) {
