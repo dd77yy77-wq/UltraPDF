@@ -47,7 +47,7 @@ const calls = { render: [], szs: [], pick: 0, share: 0, save: 0, upd: 0, shareAp
 const byId = {};
 const ids = ['scroller', 'pages', 'title', 'emsg', 'slider', 'lbl', 'jump', 'jin', 'open2', 'night', 'nlbl', 'jgo', 'jx',
   'burger', 'scrim', 'm-open', 'm-search', 'm-share', 'm-save', 'm-about', 'about', 'aver', 'a-upd', 'a-share', 'a-git', 'a-close',
-  'sbar', 'sclose', 'sq', 'scount', 'sprev', 'snext'];
+  'm-hist', 'hist', 'hlist', 'h-clear', 'h-close', 'sbar', 'sclose', 'sq', 'scount', 'sprev', 'snext'];
 ids.forEach(i => byId[i] = mkEl('div', i));
 Object.defineProperty(byId.pages, 'clientWidth', { get() { return 400 * parseFloat(this.style.width || '100') / 100; } });
 byId.emsg._txt = 'default message';
@@ -60,12 +60,14 @@ global.window = { devicePixelRatio: 3.5, addEventListener() {}, Android: null };
 const store = {}; global.localStorage = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
 
 // ---- fake Android bridge
+const hist = [{ n: 'primary:Download/Один.pdf', t: 1760400000000 }, { n: 'Два.pdf', t: 1760300000000 }];
 const bridge = { g: 0, err: 0, n: 0, nm: '', text: {}, unsup: false };
 window.Android = {
   gen: () => bridge.g, err: () => bridge.err, count: () => bridge.n, name: () => bridge.nm,
   szs(from, n) { calls.szs.push([from, n]); let s = ''; for (let i = from; i < from + n && i < bridge.n; i++) s += '595,' + (i % 2 ? 800 : 842) + ';'; return s; },
   searchPage(i, q) { calls.search.push(i); if (bridge.unsup) return '!'; return bridge.text[i] || ''; },
   pick: () => { calls.pick++; }, share: () => { calls.share++; }, saveAs: () => { calls.save++; },
+  history: () => JSON.stringify(hist), openHistory: i => { calls.hopen = i; }, clearHistory: () => { hist.length = 0; calls.hclear = (calls.hclear || 0) + 1; },
   version: () => '9.9', checkUpdate: () => { calls.upd++; }, shareApp: () => { calls.shareApp++; }, github: () => { calls.git++; }
 };
 const TB = 40;   // bars are shown: goTo leaves room under the top bar
@@ -192,6 +194,18 @@ bridge.unsup = true;
 byId['m-search'].fire('click', {}); byId.sq.value = 'zzz'; byId.sq.fire('input', {}); runTimers(1500);
 ok(/Android 15/.test(byId.scount.textContent), 'old Android: clear message instead of a broken search: ' + byId.scount.textContent);
 byId.sclose.fire('click', {}); bridge.unsup = false;
+
+console.log('== history');
+byId['m-hist'].fire('click', {});
+ok(byId.hist.classList.contains('on') && !body.classList.contains('menu'), 'history dialog opens, menu closes');
+ok(byId.hlist.children.length === 2, 'two entries listed');
+const e0 = byId.hlist.children[0];
+ok(e0.children[0].textContent === 'Один.pdf' && /^\d\d\.\d\d\.\d{4} \d\d:\d\d$/.test(e0.children[1].textContent), 'entry shows the clean name and a date: ' + e0.children[1].textContent);
+byId.hlist.children[1].fire('click', {});
+ok(calls.hopen === 1 && !byId.hist.classList.contains('on'), 'tapping an entry asks the app to open it (index 1) and closes the dialog');
+byId['m-hist'].fire('click', {}); byId['h-clear'].fire('click', {});
+ok(calls.hclear === 1 && byId.hlist.children.length === 1 && /пусто/.test(byId.hlist.children[0].textContent), 'clear empties the list and says so');
+byId['h-close'].fire('click', {}); ok(!byId.hist.classList.contains('on'), 'close');
 
 console.log('== share / save / about');
 byId['m-share'].fire('click', {}); ok(calls.share === 1, 'menu "Поделиться" -> Android.share()');

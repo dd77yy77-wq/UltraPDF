@@ -22,6 +22,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -42,8 +45,11 @@ public class MainActivity extends Activity {
     static final int REQ_SAVE = 2;
     static final String PREFS = "viewer";
     static final String KEY_LAST = "last";
+    static final String KEY_HIST = "hist";
+    static final int HIST_MAX = 10;
     static final String REPO = "https://github.com/dd77yy77-wq/UltraPDF";
 
+    final Object histLock = new Object();
     final Object lock = new Object();      // guards renderer (PdfRenderer allows one open page at a time)
     WebView web;
     PdfRenderer renderer;
@@ -125,6 +131,10 @@ public class MainActivity extends Activity {
 
     private boolean handle(Intent i) {
         if (i == null || i.getData() == null) return false;
+        try {
+            getContentResolver().takePersistableUriPermission(i.getData(), Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {   // not offered by this provider: the history entry may stop working later
+        }
         pendingRestore = false;
         pending = i.getData();
         return true;
@@ -177,8 +187,10 @@ public class MainActivity extends Activity {
                 name = displayName(u);
                 err = 0;
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, u.toString()).apply();
+                addHistory(u, name);
             } catch (Exception e) {
                 closeDoc();
+                removeHistory(u.toString());
                 if (restore) {
                     // silent: the old file is gone or access was revoked; show the empty start screen
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_LAST).apply();
@@ -187,6 +199,107 @@ public class MainActivity extends Activity {
                 err = 1;
             }
             gen++;
+        }
+    }
+
+    // ---- history of the last HIST_MAX documents: [{u:uri, n:name, t:millis}], newest first
+    private JSONArray loadHist() {
+        try {
+            return new JSONArray(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_HIST, "[]"));
+        } catch (Exception e) {
+            return new JSONArray();
+        }
+    }
+
+    private void saveHist(JSONArray a) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_HIST, a.toString()).apply();
+    }
+
+    private void release(String uri) {
+        try {
+            getContentResolver().releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+        }
+    }
+
+    void addHistory(Uri u, String n) {
+        synchronized (histLock) {
+            try {
+                JSONArray old = loadHist();
+                JSONArray a = new JSONArray();
+                JSONObject me = new JSONObject();
+                me.put("u", u.toString());
+                me.put("n", n);
+                me.put("t", System.currentTimeMillis());
+                a.put(me);
+                for (int k = 0; k < old.length(); k++) {
+                    JSONObject o = old.getJSONObject(k);
+                    if (o.getString("u").equals(u.toString())) continue;
+                    if (a.length() < HIST_MAX) a.put(o);
+                    else release(o.getString("u"));
+                }
+                saveHist(a);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    void removeHistory(String uri) {
+        synchronized (histLock) {
+            try {
+                JSONArray old = loadHist();
+                JSONArray a = new JSONArray();
+                for (int k = 0; k < old.length(); k++) {
+                    JSONObject o = old.getJSONObject(k);
+                    if (!o.getString("u").equals(uri)) a.put(o);
+                }
+                saveHist(a);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    String historyJson() {
+        synchronized (histLock) {
+            try {
+                JSONArray old = loadHist();
+                JSONArray a = new JSONArray();
+                for (int k = 0; k < old.length(); k++) {
+                    JSONObject o = old.getJSONObject(k);
+                    JSONObject r = new JSONObject();
+                    r.put("n", o.optString("n", ""));
+                    r.put("t", o.optLong("t", 0));
+                    a.put(r);
+                }
+                return a.toString();
+            } catch (Exception e) {
+                return "[]";
+            }
+        }
+    }
+
+    void openHistory(int idx) {
+        synchronized (histLock) {
+            try {
+                JSONArray a = loadHist();
+                if (idx < 0 || idx >= a.length()) return;
+                pendingRestore = false;
+                pending = Uri.parse(a.getJSONObject(idx).getString("u"));
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    void clearHistory() {
+        synchronized (histLock) {
+            JSONArray a = loadHist();
+            for (int k = 0; k < a.length(); k++) {
+                try {
+                    release(a.getJSONObject(k).getString("u"));
+                } catch (Exception ignored) {
+                }
+            }
+            saveHist(new JSONArray());
         }
     }
 
@@ -386,6 +499,21 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void saveAs() {
             a.runOnUiThread(new UiTask(a, 3));
+        }
+
+        @JavascriptInterface
+        public String history() {
+            return a.historyJson();
+        }
+
+        @JavascriptInterface
+        public void openHistory(int idx) {
+            a.openHistory(idx);
+        }
+
+        @JavascriptInterface
+        public void clearHistory() {
+            a.clearHistory();
         }
 
         @JavascriptInterface
