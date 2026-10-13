@@ -7,6 +7,7 @@
 ночной режим, запоминание позиции, открытие последнего файла, открытие PDF из других приложений.
 
 Готовый APK: `UltraPDF.apk` (подпись ключом dbg.jks, тем же, что у TITAN RAID).
+Автообновление: при запуске приложение читает `version.json` из этого репозитория (ветка main) и, если `code` больше установленного, предлагает скачать и установить `UltraPDF.apk`. Для новой версии увеличить `code`/`name` в `version.json` и заменить APK.
 
 Сборка: `SDK=/path/to/sdkmin KS=/path/to/dbg.jks ./build.sh <versionCode> <versionName> out.apk`
 (aapt2 → javac → d8 → zipalign → apksigner). Внутренние нестатические классы в Java не использовать: d8 8.2 на них падает.

@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(this), "Android");
         setContentView(web);
         web.loadUrl("file:///android_asset/index.html");
+        Updater.check(this);
         if (!handle(getIntent())) {
             // plain launch: reopen the last document, if it is still readable
             String last = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST, null);
@@ -53,6 +54,12 @@ public class MainActivity extends Activity {
                 pending = Uri.parse(last);
             }
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Updater.onResume(this);
     }
 
     @Override
