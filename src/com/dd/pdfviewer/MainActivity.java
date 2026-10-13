@@ -820,6 +820,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void shareApk() {
+            a.runOnUiThread(new UiTask(a, 11, 0, null));
+        }
+
+        @JavascriptInterface
         public void github() {
             a.runOnUiThread(new UiTask(a, 6, 0, null));
         }
@@ -874,6 +879,14 @@ public class MainActivity extends Activity {
                     send.putExtra(Intent.EXTRA_TEXT, "UltraPDF: читалка PDF для Android\n" + REPO
                             + "\nAPK: " + REPO + "/raw/main/UltraPDF.apk");
                     a.startActivity(Intent.createChooser(send, "Поделиться приложением"));
+                } else if (what == 11) {
+                    Uri u = Uri.parse("content://" + ApkProvider.AUTH + "/UltraPDF.apk");
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType("application/vnd.android.package-archive");
+                    send.putExtra(Intent.EXTRA_STREAM, u);
+                    send.setClipData(ClipData.newRawUri("UltraPDF.apk", u));
+                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    a.startActivity(Intent.createChooser(send, "Отправить файл APK"));
                 } else if (what == 6) {
                     a.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO)));
                 } else if (what == 7) {

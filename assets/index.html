@@ -201,7 +201,8 @@ body.fs #fsx{display:flex}
       <div class="ttl">UltraPDF</div>
       <div class="ver" id="aver"></div>
       <button class="acc" id="a-upd">Проверить обновления</button>
-      <button id="a-share">Поделиться приложением</button>
+      <button id="a-apk">Отправить файл APK</button>
+      <button id="a-share">Поделиться ссылкой на приложение</button>
       <button id="a-git">GitHub</button>
       <button id="a-close">Закрыть</button>
     </div>
@@ -342,6 +343,7 @@ body.fs #fsx{display:flex}
   });
   $('a-close').addEventListener('click', function () { closeModal('about'); });
   $('a-upd').addEventListener('click', function () { closeModal('about'); try { A.checkUpdate(); } catch (e) {} });
+  $('a-apk').addEventListener('click', function () { try { A.shareApk(); } catch (e) {} });
   $('a-share').addEventListener('click', function () { try { A.shareApp(); } catch (e) {} });
   $('a-git').addEventListener('click', function () { try { A.github(); } catch (e) {} });
 

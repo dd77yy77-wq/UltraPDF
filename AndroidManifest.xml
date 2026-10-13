@@ -19,5 +19,7 @@
                 <data android:scheme="file" android:mimeType="application/pdf"/>
             </intent-filter>
         </activity>
+        <provider android:name=".ApkProvider" android:authorities="com.dd.pdfviewer.apk"
+            android:exported="false" android:grantUriPermissions="true"/>
     </application>
 </manifest>

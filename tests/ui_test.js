@@ -12,7 +12,7 @@ Date.now = () => now;   // fake clock, advances only via runTimers
 function runTimers(ms) { const end = now + ms; for (;;) { const c = timers.filter(t => t.f && t.at <= end).sort((a, b) => a.at - b.at)[0]; if (!c) break; now = Math.max(now, c.at); const f = c.f; c.f = null; f(); } now = end; }
 const flush = async () => { for (let k = 0; k < 12; k++) { await new Promise(r => setImmediate(r)); runTimers(10); } };
 
-const calls = { render: [], szs: [], pick: 0, share: 0, save: 0, upd: 0, shareApp: 0, git: 0, search: [], getDocument: [], theme: [], brightness: [], fullscreen: [], print: 0, copy: [], openUrl: [], pw: [] };
+const calls = { render: [], szs: [], pick: 0, share: 0, save: 0, upd: 0, shareApp: 0, shareApk: 0, git: 0, search: [], getDocument: [], theme: [], brightness: [], fullscreen: [], print: 0, copy: [], openUrl: [], pw: [] };
 let focused = null, window_;
 
 function mkEl(tag, id) {
@@ -71,7 +71,7 @@ const fakeLib = { GlobalWorkerOptions: {}, getDocument: opts => { calls.getDocum
 
 const byId = {};
 const ids = ['scroller', 'pages', 'title', 'emsg', 'slider', 'lbl', 'jump', 'jin', 'open2', 'night', 'nlbl', 'jgo', 'jx',
-  'burger', 'scrim', 'm-pro', 'm-open', 'm-search', 'm-share', 'm-save', 'm-about', 'about', 'aver', 'a-upd', 'a-share', 'a-git', 'a-close',
+  'burger', 'scrim', 'm-pro', 'm-open', 'm-search', 'm-share', 'm-save', 'm-about', 'about', 'aver', 'a-upd', 'a-share', 'a-apk', 'a-git', 'a-close',
   'm-hist', 'hist', 'hlist', 'h-clear', 'h-close', 'm-bm', 'bm', 'bmlist', 'bm-add', 'bm-close', 'm-toc', 'toc', 'toclist', 'toc-close',
   'm-txt', 'txt', 'txtt', 'ttext', 'txt-copy', 'txt-close', 'm-print', 'm-look', 'look', 'bright', 'bright-auto', 'look-close',
   'm-fs', 'fsx', 'pass', 'passmsg', 'pwd', 'pass-ok', 'pass-no', 'sbar', 'sclose', 'sq', 'scount', 'sprev', 'snext'];
@@ -99,7 +99,7 @@ window.Android = {
   searchPage(i, q) { calls.search.push(i); if (bridge.unsup) return '!'; return bridge.text[i] || ''; },
   pick: () => { calls.pick++; }, share: () => { calls.share++; }, saveAs: () => { calls.save++; },
   history: () => JSON.stringify(hist), openHistory: i => { calls.hopen = i; }, clearHistory: () => { hist.length = 0; calls.hclear = (calls.hclear || 0) + 1; },
-  version: () => '9.9', checkUpdate: () => { calls.upd++; }, shareApp: () => { calls.shareApp++; }, github: () => { calls.git++; },
+  version: () => '9.9', checkUpdate: () => { calls.upd++; }, shareApp: () => { calls.shareApp++; }, shareApk: () => { calls.shareApk++; }, github: () => { calls.git++; },
   theme: l => calls.theme.push(l), brightness: p => calls.brightness.push(p), fullscreen: f => calls.fullscreen.push(f),
   print: () => { calls.print++; }, copy: t => calls.copy.push(t), openUrl: u => calls.openUrl.push(u), openWithPassword: pw => { calls.pw.push(pw); }
 };
@@ -246,6 +246,7 @@ byId['m-save'].fire('click', {}); ok(calls.save === 1, 'menu "Сохранить
 byId['m-about'].fire('click', {});
 ok(byId.about.classList.contains('on') && byId.aver.textContent === 'Версия 9.9', 'about dialog shows the version');
 byId['a-share'].fire('click', {}); byId['a-git'].fire('click', {}); ok(calls.shareApp === 1 && calls.git === 1, 'share app and GitHub buttons call the app');
+byId['a-apk'].fire('click', {}); ok(calls.shareApk === 1, 'send APK file button calls the app');
 byId['a-upd'].fire('click', {}); ok(calls.upd === 1 && !byId.about.classList.contains('on'), 'update check calls the app and closes the dialog');
 
 console.log('== normal mode ignores Pro-only look settings');
