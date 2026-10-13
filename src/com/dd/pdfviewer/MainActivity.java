@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.UriPermission;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -41,6 +42,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FilterInputStream;
@@ -242,6 +244,10 @@ public class MainActivity extends Activity {
     }
 
     private String displayName(Uri u) {
+        if ("file".equals(u.getScheme())) {
+            String n = u.getLastPathSegment();
+            return n == null ? "" : n.replaceFirst("^[0-9a-f]{1,8}_", "");
+        }
         Cursor c = null;
         try {
             c = getContentResolver().query(u, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
@@ -257,9 +263,78 @@ public class MainActivity extends Activity {
         return n == null ? "" : n;
     }
 
+    private boolean persisted(Uri u) {
+        try {
+            for (UriPermission p : getContentResolver().getPersistedUriPermissions()) {
+                if (p.isReadPermission() && p.getUri().equals(u)) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    static File recentDir(Context c) {
+        File d = new File(c.getFilesDir(), "recent");
+        d.mkdirs();
+        return d;
+    }
+
+    /** Documents opened from other apps come with a one-time grant: keep a private copy so history and "last document" keep working. */
+    private Uri copyLocal(Uri u) {
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            String n = displayName(u).replaceAll("[^\\p{L}\\p{N}._ -]", "_");
+            if (n.length() == 0) n = "document";
+            if (!n.toLowerCase().endsWith(".pdf")) n = n + ".pdf";
+            File f = new File(recentDir(this), Integer.toHexString(u.toString().hashCode()) + "_" + n);
+            in = getContentResolver().openInputStream(u);
+            if (in == null) return null;
+            out = new FileOutputStream(f);
+            byte[] buf = new byte[65536];
+            int k;
+            while ((k = in.read(buf)) > 0) out.write(buf, 0, k);
+            out.close();
+            out = null;
+            return Uri.fromFile(f);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                if (out != null) out.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** Deletes private copies that no history entry (and not the open document) points to any more. */
+    void pruneCopies() {
+        try {
+            java.util.HashSet<String> keep = new java.util.HashSet<String>();
+            JSONArray h = loadHist();
+            for (int i = 0; i < h.length(); i++) {
+                String p = Uri.parse(h.getJSONObject(i).getString("u")).getPath();
+                if (p != null) keep.add(new File(p).getName());
+            }
+            if (current != null && current.getPath() != null) keep.add(new File(current.getPath()).getName());
+            File[] fs = recentDir(this).listFiles();
+            if (fs == null) return;
+            for (File f : fs) if (!keep.contains(f.getName())) f.delete();
+        } catch (Exception ignored) {
+        }
+    }
+
     void open(Uri u, boolean restore, String password) {
         synchronized (lock) {
             closeDoc();
+            if (!restore && password == null && "content".equals(u.getScheme()) && !ApkProvider.AUTH.equals(u.getAuthority()) && !persisted(u)) {
+                Uri c = copyLocal(u);
+                if (c != null) u = c;
+            }
             try {
                 pfd = getContentResolver().openFileDescriptor(u, "r");
                 renderer = password == null ? new PdfRenderer(pfd) : withPassword(pfd, password);
@@ -270,10 +345,12 @@ public class MainActivity extends Activity {
                 err = 0;
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, u.toString()).apply();
                 addHistory(u, name);
+                pruneCopies();
             } catch (Throwable e) {
+                boolean fdOpened = pfd != null;   // a SecurityException before this point means lost access, not a password
                 closeDoc();
                 Throwable c = e instanceof InvocationTargetException && e.getCause() != null ? e.getCause() : e;
-                if (c instanceof SecurityException) {
+                if (c instanceof SecurityException && fdOpened) {
                     // password protected (or a wrong password)
                     pwdUri = u;
                     current = u;
@@ -403,6 +480,7 @@ public class MainActivity extends Activity {
             }
             saveHist(new JSONArray());
         }
+        pruneCopies();
     }
 
     // mode 1 = night: inverted like CSS invert(1) hue-rotate(180deg); mode 2 = sepia: grey tinted like warm paper
@@ -856,9 +934,11 @@ public class MainActivity extends Activity {
                 } else if (what == 2) {
                     Uri u = a.current;
                     if (u == null) return;
+                    if ("file".equals(u.getScheme())) u = Uri.parse("content://" + ApkProvider.AUTH + "/doc/" + Uri.encode(u.getLastPathSegment()));
                     Intent send = new Intent(Intent.ACTION_SEND);
                     send.setType("application/pdf");
                     send.putExtra(Intent.EXTRA_STREAM, u);
+                    send.setClipData(ClipData.newRawUri("pdf", u));
                     send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     a.startActivity(Intent.createChooser(send, "Поделиться"));
                 } else if (what == 3) {

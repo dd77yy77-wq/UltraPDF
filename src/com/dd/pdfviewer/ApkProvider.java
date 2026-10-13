@@ -16,6 +16,11 @@ public class ApkProvider extends ContentProvider {
     static final String AUTH = "com.dd.pdfviewer.apk";
 
     private File apk(Uri uri) {
+        if (uri.getPathSegments().size() == 2 && "doc".equals(uri.getPathSegments().get(0))) {
+            String n = uri.getLastPathSegment();
+            if (n.contains("/") || n.contains("..")) n = "x";
+            return new File(MainActivity.recentDir(getContext()), n);
+        }
         if ("update.apk".equals(uri.getLastPathSegment())) return new File(getContext().getCacheDir(), "update.apk");
         return new File(getContext().getApplicationInfo().sourceDir);
     }
@@ -37,7 +42,7 @@ public class ApkProvider extends ContentProvider {
         MatrixCursor c = new MatrixCursor(cols);
         Object[] row = new Object[cols.length];
         for (int i = 0; i < cols.length; i++) {
-            if (OpenableColumns.DISPLAY_NAME.equals(cols[i])) row[i] = uri.getLastPathSegment();
+            if (OpenableColumns.DISPLAY_NAME.equals(cols[i])) row[i] = uri.getLastPathSegment().replaceFirst("^[0-9a-f]{1,8}_", "");
             else if (OpenableColumns.SIZE.equals(cols[i])) row[i] = apk(uri).length();
         }
         c.addRow(row);
@@ -46,7 +51,7 @@ public class ApkProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
-        return "application/vnd.android.package-archive";
+        return uri.getPathSegments().size() == 2 ? "application/pdf" : "application/vnd.android.package-archive";
     }
 
     @Override
