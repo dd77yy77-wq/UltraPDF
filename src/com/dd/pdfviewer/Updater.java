@@ -33,7 +33,7 @@ final class Updater {
 
     /** manual — вызвано кнопкой в настройках: говорит о результате даже если обновления нет. */
     static void check(final Activity a, final boolean manual) {
-        if (!manual) { if (checked) return; checked = true; }
+        if (!manual) { if (checked) return; checked = true; afterUpdate(a); }
         else a.runOnUiThread(() -> Toast.makeText(a, "Проверяю обновления…", Toast.LENGTH_SHORT).show());
         new Thread(() -> {
             try {
@@ -46,7 +46,7 @@ final class Updater {
                     target = code;
                     android.content.SharedPreferences sp = a.getSharedPreferences("viewer", Context.MODE_PRIVATE);
                     final String warn = sp.getInt("upd_try", 0) == code
-                            ? "\n\nПрошлая установка этой версии не завершилась. В окне установщика нажмите «Обновить» и дождитесь конца; если он пишет «приложение не установлено», сообщите текст."
+                            ? "\n\nПрошлая установка этой версии не завершилась. В окне установщика нажмите «Обновить» и дождитесь конца."
                             : "";
                     a.runOnUiThread(() -> ask(a, name, notes + warn));
                 }
@@ -55,6 +55,22 @@ final class Updater {
                 if (manual) a.runOnUiThread(() -> Toast.makeText(a, "Не удалось проверить: нет связи с сервером", Toast.LENGTH_LONG).show());
             }
         }).start();
+    }
+
+    /** First start after an install: confirm it, drop the downloaded file and forget the pending attempt. */
+    private static void afterUpdate(Activity a) {
+        try {
+            android.content.pm.PackageInfo pi = a.getPackageManager().getPackageInfo(a.getPackageName(), 0);
+            android.content.SharedPreferences sp = a.getSharedPreferences("viewer", Context.MODE_PRIVATE);
+            int t = sp.getInt("upd_try", 0);
+            File f = new File(a.getCacheDir(), "update.apk");
+            if (f.exists() && t <= pi.versionCode) f.delete();
+            if (t != 0 && t <= pi.versionCode) {
+                sp.edit().remove("upd_try").apply();
+                if (t == pi.versionCode) Toast.makeText(a, "Обновлено до версии " + pi.versionName, Toast.LENGTH_LONG).show();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private static byte[] read(String url) throws Exception {
@@ -107,7 +123,7 @@ final class Updater {
                 if (total > 0 && got != total) throw new Exception("incomplete");
                 a.runOnUiThread(() -> { dlg.dismiss(); install(a); });
             } catch (Throwable e) {
-                a.runOnUiThread(() -> { dlg.dismiss(); Toast.makeText(a, "Не удалось скачать обновление", Toast.LENGTH_LONG).show(); });
+                a.runOnUiThread(() -> { dlg.dismiss(); Toast.makeText(a, "Не удалось скачать обновление: " + e, Toast.LENGTH_LONG).show(); });
                 checked = false;
             }
         }).start();
