@@ -15,7 +15,8 @@ import java.io.FileNotFoundException;
 public class ApkProvider extends ContentProvider {
     static final String AUTH = "com.dd.pdfviewer.apk";
 
-    private File apk() {
+    private File apk(Uri uri) {
+        if ("update.apk".equals(uri.getLastPathSegment())) return new File(getContext().getCacheDir(), "update.apk");
         return new File(getContext().getApplicationInfo().sourceDir);
     }
 
@@ -27,7 +28,7 @@ public class ApkProvider extends ContentProvider {
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new FileNotFoundException("read only");
-        return ParcelFileDescriptor.open(apk(), ParcelFileDescriptor.MODE_READ_ONLY);
+        return ParcelFileDescriptor.open(apk(uri), ParcelFileDescriptor.MODE_READ_ONLY);
     }
 
     @Override
@@ -36,8 +37,8 @@ public class ApkProvider extends ContentProvider {
         MatrixCursor c = new MatrixCursor(cols);
         Object[] row = new Object[cols.length];
         for (int i = 0; i < cols.length; i++) {
-            if (OpenableColumns.DISPLAY_NAME.equals(cols[i])) row[i] = "UltraPDF.apk";
-            else if (OpenableColumns.SIZE.equals(cols[i])) row[i] = apk().length();
+            if (OpenableColumns.DISPLAY_NAME.equals(cols[i])) row[i] = uri.getLastPathSegment();
+            else if (OpenableColumns.SIZE.equals(cols[i])) row[i] = apk(uri).length();
         }
         c.addRow(row);
         return c;

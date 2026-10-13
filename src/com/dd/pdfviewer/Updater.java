@@ -2,19 +2,14 @@ package com.dd.pdfviewer;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.PackageInstaller;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -25,6 +20,7 @@ import java.net.URL;
 final class Updater {
     private static final String BASE = "https://raw.githubusercontent.com/dd77yy77-wq/UltraPDF/main/";
     private static boolean checked, pending;
+    private static int target;
 
     /** Вызывается при возврате в игру: если перед этим ждали разрешения на установку — продолжаем загрузку сами. */
     static void onResume(Activity a) {
@@ -46,7 +42,14 @@ final class Updater {
                 final int code = o.getInt("code");
                 final String name = o.optString("name", String.valueOf(code)), notes = o.optString("notes", "");
                 int cur = a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionCode;
-                if (code > cur) a.runOnUiThread(() -> ask(a, name, notes));
+                if (code > cur) {
+                    target = code;
+                    android.content.SharedPreferences sp = a.getSharedPreferences("viewer", Context.MODE_PRIVATE);
+                    final String warn = sp.getInt("upd_try", 0) == code
+                            ? "\n\nПрошлая установка этой версии не завершилась. В окне установщика нажмите «Обновить» и дождитесь конца; если он пишет «приложение не установлено», сообщите текст."
+                            : "";
+                    a.runOnUiThread(() -> ask(a, name, notes + warn));
+                }
                 else if (manual) a.runOnUiThread(() -> Toast.makeText(a, "Установлена последняя версия", Toast.LENGTH_LONG).show());
             } catch (Throwable e) {
                 if (manual) a.runOnUiThread(() -> Toast.makeText(a, "Не удалось проверить: нет связи с сервером", Toast.LENGTH_LONG).show());
@@ -83,6 +86,7 @@ final class Updater {
             return;
         }
         pending = false;
+        a.getSharedPreferences("viewer", Context.MODE_PRIVATE).edit().putInt("upd_try", target).apply();
         final AlertDialog dlg = new AlertDialog.Builder(a, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle("Скачивание обновления").setMessage("0%").setCancelable(false).show();
         new Thread(() -> {
@@ -101,8 +105,7 @@ final class Updater {
                 }
                 out.close(); in.close();
                 if (total > 0 && got != total) throw new Exception("incomplete");
-                a.runOnUiThread(() -> { dlg.dismiss(); });
-                install(a, f);
+                a.runOnUiThread(() -> { dlg.dismiss(); install(a); });
             } catch (Throwable e) {
                 a.runOnUiThread(() -> { dlg.dismiss(); Toast.makeText(a, "Не удалось скачать обновление", Toast.LENGTH_LONG).show(); });
                 checked = false;
@@ -110,36 +113,18 @@ final class Updater {
         }).start();
     }
 
-    private static void install(final Activity a, File f) throws Exception {
-        final Context app = a.getApplicationContext();
-        PackageInstaller pi = a.getPackageManager().getPackageInstaller();
-        PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-        int id = pi.createSession(sp);
-        PackageInstaller.Session s = pi.openSession(id);
-        OutputStream os = s.openWrite("app", 0, f.length());
-        InputStream in = new FileInputStream(f);
-        byte[] b = new byte[16384]; int n;
-        while ((n = in.read(b)) > 0) os.write(b, 0, n);
-        in.close();
-        s.fsync(os);
-        os.close();
-        final String action = app.getPackageName() + ".UPDATE_DONE";
-        BroadcastReceiver r = new BroadcastReceiver() {
-            @Override public void onReceive(Context ctx, Intent i) {
-                int st = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
-                if (st == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                    Intent ui = (Intent) i.getParcelableExtra(Intent.EXTRA_INTENT);
-                    if (ui != null) { ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); ctx.startActivity(ui); }
-                } else if (st != PackageInstaller.STATUS_SUCCESS) {
-                    Toast.makeText(ctx, "Установка не удалась: " + i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE), Toast.LENGTH_LONG).show();
-                    checked = false;
-                }
-            }
-        };
-        IntentFilter fl = new IntentFilter(action);
-        if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(r, fl, 2); else app.registerReceiver(r, fl);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
-        PendingIntent pend = PendingIntent.getBroadcast(app, id, new Intent(action).setPackage(app.getPackageName()), flags);
-        s.commit(pend.getIntentSender());
+    /** Hands the downloaded APK to the system installer (the same route file managers use). */
+    private static void install(final Activity a) {
+        Uri u = Uri.parse("content://" + ApkProvider.AUTH + "/update.apk");
+        Intent it = new Intent(Intent.ACTION_VIEW);
+        it.setDataAndType(u, "application/vnd.android.package-archive");
+        it.setClipData(android.content.ClipData.newRawUri("update.apk", u));
+        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            a.startActivity(it);
+        } catch (Throwable e) {
+            Toast.makeText(a, "Не удалось открыть установщик: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            checked = false;
+        }
     }
 }
