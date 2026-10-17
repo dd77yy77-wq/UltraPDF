@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Щиток</title>
+<style>
+:root{--bg:#101216;--card:#1a1d24;--card2:#222630;--line:#2c313c;--tx:#eef1f6;--mut:#8b93a3;--acc:#ffb020;--acc2:#ffd27a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:16px/1.3 system-ui,-apple-system,Roboto,"Segoe UI",sans-serif;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;height:100%}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
+header h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
+.zoom{display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.zoom button{background:none;border:0;color:var(--mut);font-size:14px;font-weight:600;padding:7px 12px}
+.zoom button.on{background:var(--acc);color:#1a1200}
+#photoWrap{position:relative;overflow:auto;max-height:42vh;background:#000;border-top:1px solid var(--line);border-bottom:1px solid var(--line);scrollbar-width:none;flex:none}
+#photoWrap::-webkit-scrollbar{display:none}
+#stage{position:relative;width:100%}
+#stage img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
+#stage svg{position:absolute;left:0;top:0;width:100%;height:100%}
+.hit{fill:rgba(255,255,255,.0);stroke:rgba(255,255,255,.55);stroke-width:5;cursor:pointer}
+.hit.sel{stroke:var(--acc);stroke-width:12;fill:rgba(255,176,32,.28)}
+.hit.unnamed{stroke-dasharray:14 10}
+.bd circle{fill:rgba(16,18,22,.78);stroke:rgba(255,255,255,.7);stroke-width:4}
+.bd text{fill:#fff;font:700 74px system-ui,sans-serif;text-anchor:middle;dominant-baseline:central}
+.bd.sel circle{fill:var(--acc);stroke:#fff}
+.bd.sel text{fill:#1a1200}
+.bd{pointer-events:none}
+#dim{fill:rgba(0,0,0,.58);fill-rule:evenodd;pointer-events:none;opacity:0;transition:opacity .2s}
+#dim.on{opacity:1}
+#listWrap{flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(14px + env(safe-area-inset-bottom))}
+.foot{display:none;text-align:center;color:var(--mut);font-size:13px;margin:14px 0 4px}.foot button{display:block;margin:8px auto 0;background:var(--card);border:1px solid var(--line);color:var(--tx);font-size:14px;font-weight:600;padding:10px 16px;border-radius:12px}
+.hint{color:var(--mut);font-size:13px;margin:0 2px 8px}
+.row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 8px 10px 10px;margin-bottom:8px;transition:background .15s,border-color .15s}
+.row.sel{background:#2b2417;border-color:var(--acc)}
+.num{flex:none;width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:var(--acc2)}
+.row.sel .num{background:var(--acc);color:#1a1200}
+.main{flex:1;min-width:0}
+.name{font-size:16px;font-weight:600;overflow-wrap:anywhere}
+.name.empty{color:var(--mut);font-weight:500}
+.sub{font-size:12px;color:var(--mut);margin-top:2px}
+.edit{flex:none;background:none;border:0;color:var(--mut);padding:10px;border-radius:10px;font-size:18px}
+.edit:active{background:var(--card2)}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;z-index:10}
+#modal.on{display:flex}
+.sheet{width:100%;max-width:520px;background:var(--card);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));border:1px solid var(--line)}
+.sheet h2{margin:0 0 10px;font-size:17px}
+.sheet input{width:100%;font-size:17px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--tx);outline:none}
+.sheet input:focus{border-color:var(--acc)}
+.btns{display:flex;gap:8px;margin-top:12px}
+.btns button{flex:1;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card2);color:var(--tx);font-size:15px;font-weight:600}
+.btns .ok{background:var(--acc);color:#1a1200;border-color:var(--acc)}
+.reset{display:block;margin:10px auto 0;background:none;border:0;color:var(--mut);font-size:13px;padding:6px}
+@media (orientation:landscape) and (min-width:700px){
+  #app{flex-direction:row;flex-wrap:wrap}
+  header{width:100%}
+  #photoWrap{width:58%;height:calc(100% - 52px);border:0;border-top:1px solid var(--line);display:flex;align-items:center}
+  #stage{flex:none}
+  #listWrap{width:42%;height:calc(100% - 52px)}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Щиток</h1>
+    <div class="zoom" id="zoom"><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="3">3×</button></div>
+  </header>
+  <div id="photoWrap"><div id="stage">
+    <img id="photo" src="photo.jpg" alt="Автоматы">
+    <svg id="ov" viewBox="0 0 2576 1840" preserveAspectRatio="none"></svg>
+  </div></div>
+  <div id="listWrap">
+    <p class="hint">Нажмите на автомат на фото или на строку в списке. Карандаш — изменить название.</p>
+    <div id="list"></div>
+    <div class="foot" id="foot"><span id="ver"></span><button id="upd">Проверить обновления</button></div>
+  </div>
+</div>
+<div id="modal"><div class="sheet">
+  <h2 id="mTitle"></h2>
+  <input id="mInput" type="text" maxlength="80" placeholder="За что отвечает" autocomplete="off">
+  <div class="btns"><button id="mCancel">Отмена</button><button class="ok" id="mSave">Сохранить</button></div>
+  <button class="reset" id="mReset">Сбросить к исходному</button>
+</div></div>
+<script>
+(function(){
+var TOP=[215,407,594,779,968,1158,1349,1543,1736,1932,2129,2329,2529];
+var BOT=[208,402,590,770,958,1148,1340,1528,1723,1917,2114,2312,2527];
+var Y0=462,Y1=928;
+var DEFAULTS=[
+ "","Розетки в комнате с проектором","","","Удлинитель в гостиной у дивана (к нему подключён конвектор)","","","","","","",""
+];
+var KEY="shchitok.labels.v1";
+var edits={};
+try{edits=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(e){edits={};}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(edits));}catch(e){}}
+function label(i){
+  if(Object.prototype.hasOwnProperty.call(edits,i)) return edits[i];
+  return DEFAULTS[i]||"";
+}
+var NS="http://www.w3.org/2000/svg";
+var ov=document.getElementById("ov"), list=document.getElementById("list");
+var wrap=document.getElementById("photoWrap"), stage=document.getElementById("stage");
+var sel=-1, zoom=1;
+function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+function pts(i){return TOP[i]+","+Y0+" "+TOP[i+1]+","+Y0+" "+BOT[i+1]+","+Y1+" "+BOT[i]+","+Y1;}
+var dim=el("path",{id:"dim"}); ov.appendChild(dim);
+var hits=[],bds=[],rows=[],names=[];
+for(var i=0;i<12;i++){
+  var h=el("polygon",{"class":"hit",points:pts(i)});
+  (function(i){h.addEventListener("click",function(){select(i,false);});})(i);
+  ov.appendChild(h); hits.push(h);
+}
+for(var i=0;i<12;i++){
+  var cx=(TOP[i]+TOP[i+1]+BOT[i]+BOT[i+1])/4, cy=(Y0+Y1)/2-40;
+  var g=el("g",{"class":"bd"});
+  g.appendChild(el("circle",{cx:cx,cy:cy,r:56}));
+  var t=el("text",{x:cx,y:cy+3}); t.textContent=String(i+1); g.appendChild(t);
+  ov.appendChild(g); bds.push(g);
+}
+for(var i=0;i<12;i++){
+  var r=document.createElement("div"); r.className="row";
+  r.innerHTML='<div class="num"></div><div class="main"><div class="name"></div><div class="sub"></div></div><button class="edit" aria-label="Изменить">✎</button>';
+  r.querySelector(".num").textContent=String(i+1);
+  r.querySelector(".sub").textContent="Автомат №"+(i+1)+" слева направо";
+  (function(i,r){
+    r.addEventListener("click",function(ev){ if(ev.target.closest(".edit")) return; select(i,true); });
+    r.querySelector(".edit").addEventListener("click",function(){openEdit(i);});
+  })(i,r);
+  list.appendChild(r); rows.push(r); names.push(r.querySelector(".name"));
+}
+function render(){
+  for(var i=0;i<12;i++){
+    var s=label(i), n=names[i];
+    n.textContent=s||"Не подписано"; n.className="name"+(s?"":" empty");
+    hits[i].setAttribute("class","hit"+(i===sel?" sel":"")+(s?"":" unnamed"));
+    bds[i].setAttribute("class","bd"+(i===sel?" sel":""));
+    rows[i].className="row"+(i===sel?" sel":"");
+  }
+  if(sel>=0){
+    dim.setAttribute("d","M0,0H2576V1840H0Z M"+pts(sel).replace(/ /g," L").replace(/^/,"")+" Z");
+    dim.setAttribute("class","on");
+  } else dim.setAttribute("class","");
+}
+function select(i,fromList){
+  sel=(sel===i)?-1:i;
+  render();
+  if(sel>=0){
+    centerPhoto(sel);
+    if(!fromList) rows[sel].scrollIntoView({behavior:"smooth",block:"nearest"});
+  }
+}
+function centerPhoto(i){
+  if(zoom<=1) return;
+  var k=stage.clientWidth/2576;
+  var cx=(TOP[i]+TOP[i+1]+BOT[i]+BOT[i+1])/4*k, cy=(Y0+Y1)/2*k;
+  wrap.scrollTo({left:Math.max(0,cx-wrap.clientWidth/2),top:Math.max(0,cy-wrap.clientHeight/2),behavior:"smooth"});
+}
+var zb=document.querySelectorAll("#zoom button");
+for(var k=0;k<zb.length;k++){(function(b){b.addEventListener("click",function(){
+  var old=wrap.scrollLeft+wrap.clientWidth/2, oldW=stage.clientWidth, oldY=(wrap.scrollTop+wrap.clientHeight/2)/stage.clientHeight;
+  zoom=+b.getAttribute("data-z");
+  for(var j=0;j<zb.length;j++)zb[j].className=(zb[j]===b)?"on":"";
+  stage.style.width=(zoom*100)+"%";
+  var ratio=old/oldW;
+  wrap.scrollLeft=Math.max(0,ratio*stage.clientWidth-wrap.clientWidth/2);
+  wrap.scrollTop=Math.max(0,oldY*stage.clientHeight-wrap.clientHeight/2);
+  if(sel>=0) centerPhoto(sel);
+});})(zb[k]);}
+// editing
+var modal=document.getElementById("modal"), mIn=document.getElementById("mInput"), editing=-1;
+function openEdit(i){
+  editing=i;
+  document.getElementById("mTitle").textContent="Автомат №"+(i+1);
+  mIn.value=label(i); modal.className="on";
+  setTimeout(function(){mIn.focus();mIn.select();},50);
+}
+function closeEdit(){modal.className="";editing=-1;mIn.blur();}
+document.getElementById("mCancel").addEventListener("click",closeEdit);
+modal.addEventListener("click",function(e){if(e.target===modal)closeEdit();});
+document.getElementById("mSave").addEventListener("click",function(){
+  if(editing<0)return; var v=mIn.value.replace(/^\s+|\s+$/g,"");
+  if(v===(DEFAULTS[editing]||"")) delete edits[editing]; else edits[editing]=v;
+  save(); closeEdit(); render();
+});
+document.getElementById("mReset").addEventListener("click",function(){
+  if(editing<0)return; delete edits[editing]; save(); closeEdit(); render();
+});
+mIn.addEventListener("keydown",function(e){if(e.key==="Enter")document.getElementById("mSave").click();});
+// size photo area on portrait: let the photo take its natural height
+render();
+try{
+  if(window.AndroidApp){
+    document.getElementById("foot").style.display="block";
+    document.getElementById("ver").textContent="Версия "+window.AndroidApp.version();
+    document.getElementById("upd").addEventListener("click",function(){window.AndroidApp.checkUpdate();});
+  }
+}catch(e){}
+})();
+</script>
+</body>
+</html>
