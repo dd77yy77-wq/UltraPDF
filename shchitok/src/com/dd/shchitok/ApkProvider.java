@@ -14,8 +14,10 @@ import java.io.FileNotFoundException;
 public class ApkProvider extends ContentProvider {
     static final String AUTH = "com.dd.shchitok.apk";
 
-    private File apk() {
-        return new File(getContext().getCacheDir(), "update.apk");
+    private File apk(Uri uri) {
+        String n = uri != null ? uri.getLastPathSegment() : null;
+        if (!"Shchitok.apk".equals(n)) n = "update.apk";
+        return new File(getContext().getCacheDir(), n);
     }
 
     @Override
@@ -26,7 +28,7 @@ public class ApkProvider extends ContentProvider {
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new FileNotFoundException("read only");
-        return ParcelFileDescriptor.open(apk(), 0x10000000); // MODE_READ_ONLY
+        return ParcelFileDescriptor.open(apk(uri), 0x10000000); // MODE_READ_ONLY
     }
 
     @Override
@@ -35,8 +37,8 @@ public class ApkProvider extends ContentProvider {
         MatrixCursor c = new MatrixCursor(cols);
         Object[] row = new Object[cols.length];
         for (int i = 0; i < cols.length; i++) {
-            if ("_display_name".equals(cols[i])) row[i] = "update.apk";
-            else if ("_size".equals(cols[i])) row[i] = Long.valueOf(apk().length());
+            if ("_display_name".equals(cols[i])) row[i] = apk(uri).getName();
+            else if ("_size".equals(cols[i])) row[i] = Long.valueOf(apk(uri).length());
         }
         c.addRow(row);
         return c;

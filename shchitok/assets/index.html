@@ -37,7 +37,8 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 #dim{fill:rgba(0,0,0,.58);fill-rule:evenodd;pointer-events:none;opacity:0;transition:opacity .2s}
 #dim.on{opacity:1}
 #listWrap{flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(14px + env(safe-area-inset-bottom))}
-.foot{display:none;text-align:center;color:var(--mut);font-size:13px;margin:14px 0 4px}.foot button{display:block;margin:8px auto 0;background:var(--card);border:1px solid var(--line);color:var(--tx);font-size:14px;font-weight:600;padding:10px 16px;border-radius:12px}
+.foot{display:none;text-align:center;color:var(--mut);font-size:13px;margin:14px 0 4px}.fbtns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px}.fbtns button{margin:0!important}
+.foot button{display:block;margin:8px auto 0;background:var(--card);border:1px solid var(--line);color:var(--tx);font-size:14px;font-weight:600;padding:10px 16px;border-radius:12px}
 .hint{color:var(--mut);font-size:13px;margin:0 2px 8px}
 .row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 8px 10px 10px;margin-bottom:8px;transition:background .15s,border-color .15s}
 .row.used{border-left:5px solid #34c759}
@@ -113,7 +114,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
   <div id="listWrap">
     <p class="hint">Нажмите на устройство на фото или на строку в списке. Карандаш — изменить название.</p>
     <div id="list"></div>
-    <div class="foot" id="foot"><span id="ver"></span><button id="upd">Проверить обновления</button></div>
+    <div class="foot" id="foot"><span id="ver"></span><div class="fbtns"><button id="upd">Проверить обновления</button><button id="shr">Поделиться АПК</button></div></div>
   </div>
   <div id="devWrap"><p class="hint">Нажмите на устройство — откроется щиток и подсветится автомат, к которому оно подключено.</p><div id="devList"></div></div>
 </div>
@@ -304,6 +305,7 @@ try{
     document.getElementById("foot").style.display="block";
     document.getElementById("ver").textContent="Версия "+window.AndroidApp.version();
     document.getElementById("upd").addEventListener("click",function(){window.AndroidApp.checkUpdate();});
+    document.getElementById("shr").addEventListener("click",function(){window.AndroidApp.shareApk();});
   }
 }catch(e){}
 })();

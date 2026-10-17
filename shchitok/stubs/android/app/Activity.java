@@ -13,4 +13,5 @@ public class Activity extends android.content.Context {
   public android.content.pm.PackageManager getPackageManager(){return null;}
   public String getPackageName(){return null;}
   public java.io.File getCacheDir(){return null;}
+  public android.content.pm.ApplicationInfo getApplicationInfo(){return null;}
 }
