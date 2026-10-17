@@ -21,12 +21,17 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 #stage{position:relative;width:100%}
 #stage img{display:block;width:100%;height:auto;user-select:none;-webkit-user-drag:none}
 #stage svg{position:absolute;left:0;top:0;width:100%;height:100%}
-.hit{fill:rgba(255,255,255,.0);stroke:rgba(255,255,255,.55);stroke-width:5;cursor:pointer}
-.hit.sel{stroke:var(--acc);stroke-width:12;fill:rgba(255,176,32,.28)}
-.hit.unnamed{stroke-dasharray:14 10}
+.hit{fill:rgba(52,199,89,.16);stroke:rgba(52,199,89,.95);stroke-width:6;cursor:pointer}
+.hit.unused{fill:rgba(150,156,170,.2);stroke:rgba(165,170,184,.75);stroke-dasharray:14 10}
+.hit.sel{stroke:var(--acc);stroke-width:12;stroke-dasharray:none;fill:rgba(255,176,32,.3)}
 .bd circle{fill:rgba(16,18,22,.78);stroke:rgba(255,255,255,.7);stroke-width:4}
 .bd text{fill:#fff;font:700 74px system-ui,sans-serif;text-anchor:middle;dominant-baseline:central}
+.bd.used circle{fill:#1f9d4c;stroke:#d8ffe5}
+.bd.unused circle{fill:rgba(88,94,108,.9);stroke:rgba(210,214,224,.7)}
+.bd.unused text{fill:#d5d9e2}
 .bd.sel circle{fill:var(--acc);stroke:#fff}
+.bd.sel text{fill:#1a1200}
+.bd.used text{fill:#fff}
 .bd.sel text{fill:#1a1200}
 .bd{pointer-events:none}
 #dim{fill:rgba(0,0,0,.58);fill-rule:evenodd;pointer-events:none;opacity:0;transition:opacity .2s}
@@ -35,9 +40,16 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .foot{display:none;text-align:center;color:var(--mut);font-size:13px;margin:14px 0 4px}.foot button{display:block;margin:8px auto 0;background:var(--card);border:1px solid var(--line);color:var(--tx);font-size:14px;font-weight:600;padding:10px 16px;border-radius:12px}
 .hint{color:var(--mut);font-size:13px;margin:0 2px 8px}
 .row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 8px 10px 10px;margin-bottom:8px;transition:background .15s,border-color .15s}
-.row.sel{background:#2b2417;border-color:var(--acc)}
+.row.used{border-left:5px solid #34c759}
+.row.used .num{background:#1f9d4c;color:#fff}
+.row.unused{padding:4px 6px 4px 8px;margin-bottom:4px;border-radius:10px;background:transparent;border-style:dashed;gap:10px}
+.row.unused .num{width:24px;height:24px;font-size:12px;background:#3a3f4b;color:#aab0be}
+.row.unused .name{font-size:13px;font-weight:500;color:var(--mut)}
+.row.unused .sub{display:none}
+.row.unused .edit{padding:3px 10px;font-size:15px}
+.row.sel{background:#2b2417;border-color:var(--acc);border-style:solid;opacity:1}
 .num{flex:none;width:36px;height:36px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:var(--acc2)}
-.row.sel .num{background:var(--acc);color:#1a1200}
+.row.sel .num{background:var(--acc)!important;color:#1a1200!important}
 .main{flex:1;min-width:0}
 .name{font-size:16px;font-weight:600;overflow-wrap:anywhere}
 .name.empty{color:var(--mut);font-weight:500}
@@ -95,12 +107,12 @@ for(var q=0;q<12;q++) LP.push([[TOP[q],Y0],[TOP[q+1],Y0],[BOT[q+1],Y1],[BOT[q],Y
 var RP=[[[95,452],[365,452],[365,752],[95,752]],[[395,452],[665,452],[665,752],[395,752]],[[700,452],[972,452],[972,752],[700,752]],[[1063,160],[1258,160],[1258,330],[1258,870],[1258,1025],[1084,1025],[1047,870],[1047,330]],[[1263,160],[1653,160],[1679,330],[1679,870],[1653,1025],[1272,1025],[1263,870],[1263,330]],[[1658,160],[2053,160],[2105,330],[2105,870],[2037,1025],[1653,1025],[1684,870],[1684,330]],[[2058,160],[2453,160],[2542,330],[2542,870],[2426,1025],[2042,1025],[2114,870],[2114,330]],[[230,1690],[411,1690],[355,1900],[355,2495],[160,2495],[160,1900]],[[411,1690],[590,1690],[550,1900],[550,2495],[355,2495],[355,1900]],[[590,1690],[770,1690],[740,1900],[740,2495],[550,2495],[550,1900]],[[770,1690],[950,1690],[935,1900],[935,2495],[740,2495],[740,1900]],[[950,1690],[1137,1690],[1130,1900],[1130,2495],[935,2495],[935,1900]],[[1137,1690],[1318,1690],[1320,1900],[1320,2495],[1130,2495],[1130,1900]],[[1318,1690],[1499,1690],[1505,1900],[1505,2495],[1320,2495],[1320,1900]],[[1499,1690],[1681,1690],[1700,1900],[1700,2495],[1505,2495],[1505,1900]],[[1681,1690],[1863,1690],[1900,1900],[1900,2495],[1700,2495],[1700,1900]],[[1863,1690],[2416,1690],[2485,1900],[2485,2495],[1900,2495],[1900,1900]]];
 var RSUB=["Реле EKF MRVA-3 63A, фаза L1","Реле EKF MRVA-3 63A, фаза L2","Реле EKF MRVA-3 63A, фаза L3","Schneider K60a C40A","Schneider K60a C25A, 2 полюса","Schneider K60a C16A, 2 полюса","Schneider K60a C16A, 2 полюса",
  "Easy9 C16A (нижний ряд)","Easy9 C16A (нижний ряд)","Easy9 C16A (нижний ряд)","Easy9 C10A (нижний ряд)","Easy9 C10A (нижний ряд)","Easy9 C10A (нижний ряд)","Easy9 C6A (нижний ряд)","Easy9 C6A (нижний ряд)","Easy9 C6A (нижний ряд)","Easy9 C16A, 3 полюса (нижний ряд)"];
-var LSUB=[];for(var q=0;q<12;q++)LSUB.push("Автомат №"+(q+1)+" слева направо");
+var LSUB=[];for(var q=0;q<12;q++)LSUB.push("Автомат DEKraft B16");
 var RDEF=["Вводное реле от столба, фаза L1 (дальше идёт на стабилизатор)","Вводное реле от столба, фаза L2 (дальше идёт на стабилизатор)","Вводное реле от столба, фаза L3 (дальше идёт на стабилизатор)"];
 while(RDEF.length<17)RDEF.push("");
 RDEF[7]="Ванная: розетки в ванной, бойлер, скважина, септик, свет в ванной, очистка воды, греющий кабель";
 RDEF[9]="Удлинитель у окна на лестнице: роутеры Keenetic Runner 4G и 1-й (основной) AX6000, камера";
-RDEF[14]="Свет 1-го и 2-го этажа";
+RDEF[14]="Свет 1-го и 2-го этажа + всё уличное освещение";
 RDEF[15]="Удлинитель холодильника, конвектор, Сбер Хаб";
 RDEF[16]="Электроплита";
 var LDEF=["Верхний свет в комнате маман","Розетка в комнате с проектором (в неё подключён 2-й роутер Xiaomi AX6000)","Розетка в комнате маман","Розетка в комнате с барабанами","Удлинитель в гостиной у дивана (к нему подключён конвектор)","","","","","","",""];
@@ -164,10 +176,10 @@ function build(){
 function render(){
   for(var i=0;i<P.polys.length;i++){
     var s=label(i), nm=names[i];
-    nm.textContent=s||"Не подписано"; nm.className="name"+(s?"":" empty");
-    hits[i].setAttribute("class","hit"+(i===sel?" sel":"")+(s?"":" unnamed"));
-    bds[i].setAttribute("class","bd"+(i===sel?" sel":""));
-    rows[i].className="row"+(i===sel?" sel":"");
+    nm.textContent=s||"Не используется"; nm.className="name"+(s?"":" empty");
+    hits[i].setAttribute("class","hit"+(i===sel?" sel":"")+(s?"":" unused"));
+    bds[i].setAttribute("class","bd"+(s?" used":" unused")+(i===sel?" sel":""));
+    rows[i].className="row"+(s?" used":" unused")+(i===sel?" sel":"");
   }
   if(sel>=0){
     dim.setAttribute("d","M0,0H"+P.vb[0]+"V"+P.vb[1]+"H0Z M"+pstr(P.polys[sel]).replace(/ /g," L")+" Z");
