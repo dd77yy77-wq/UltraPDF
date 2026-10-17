@@ -257,8 +257,42 @@ var DEVS=[
   {t:"Бойлер"},
   {t:"Греющий кабель скважины"},
   {t:"Камера в туалете"},
-  {t:"Очистка воды"}
- ]}
+  {t:"Очистка воды"},
+  {t:"Скважина"},
+  {t:"Розетки в ванной"},
+  {t:"Свет в ванной"}
+ ]},
+ {t:"Вводное реле от столба",p:"right",i:0,c:[
+  {t:"Фаза L1",p:"right",i:0},
+  {t:"Фаза L2",p:"right",i:1},
+  {t:"Фаза L3",p:"right",i:2},
+  {t:"Стабилизатор (дальше от реле)",p:"right",i:0}
+ ]},
+ {t:"Комната маман",c:[
+  {t:"Верхний свет",p:"left",i:0},
+  {t:"Розетка",p:"left",i:2}
+ ]},
+ {t:"Комната с проектором",c:[
+  {t:"Розетка",p:"left",i:1,c:[{t:"Второй роутер Xiaomi AX6000"}]}
+ ]},
+ {t:"Комната с барабанами",c:[
+  {t:"Розетка",p:"left",i:3}
+ ]},
+ {t:"Гостиная",c:[
+  {t:"Удлинитель у дивана",p:"left",i:4,c:[{t:"Конвектор"}]}
+ ]},
+ {t:"Лестница",c:[
+  {t:"Удлинитель у окна",p:"right",i:9,c:[{t:"Роутер Keenetic Runner 4G"},{t:"Роутер AX6000 (1-й, основной)"},{t:"Камера"}]}
+ ]},
+ {t:"Освещение",c:[
+  {t:"Свет 1-го этажа",p:"right",i:14},
+  {t:"Свет 2-го этажа",p:"right",i:14},
+  {t:"Уличное освещение",p:"right",i:14}
+ ]},
+ {t:"Холодильник",p:"right",i:15,c:[
+  {t:"Удлинитель холодильника",c:[{t:"Конвектор"},{t:"Сбер Хаб"}]}
+ ]},
+ {t:"Электроплита",p:"right",i:16}
 ];
 var LET="abcdefghijklmnopqrstuvwxyz";
 var devList=document.getElementById("devList");
@@ -274,7 +308,7 @@ function addNode(parent,n,lvl,idx,inh){
     var cb=document.createElement("button");cb.className="chev";cb.textContent="▾";row.insertBefore(cb,row.firstChild);
     cb.addEventListener("click",function(e){e.stopPropagation();var off=kids.className.indexOf("off")<0;kids.className=off?"dk off":"dk";cb.textContent=off?"▸":"▾";});
   }
-  row.addEventListener("click",function(){goTo(p,i);});
+  row.addEventListener("click",function(){if(p===undefined||i===undefined){if(kids&&lvl===0)row.querySelector(".chev").click();return;}goTo(p,i);});
   parent.appendChild(row);
   if(n.c){kids=document.createElement("div");kids.className="dk";parent.appendChild(kids);
     for(var j=0;j<n.c.length;j++)addNode(kids,n.c[j],lvl+1,j,{p:p,i:i});}
