@@ -95,16 +95,11 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .dn .chip{flex:none;font-size:12px;font-weight:700;color:#1a1200;background:var(--acc);border-radius:999px;padding:3px 9px}
 .dn .chev{flex:none;background:none;border:0;color:var(--mut);font-size:16px;padding:4px 8px;margin:-4px 0}
 .dk.off{display:none}
-.hit.crit{fill:rgba(255,69,58,.2);stroke:#ff453a}
-.hit.crit.sel{stroke:#ff453a;fill:rgba(255,69,58,.4)}
-.bd.crit circle{fill:#d92d20;stroke:#ffd9d6}
-.bd.crit.sel circle{fill:#ff453a;stroke:#fff}
-.bd.crit.sel text{fill:#fff}
-.row.crit{border-left:5px solid #ff453a}
-.row.crit .num{background:#d92d20;color:#fff}
-.row.crit .name{color:#ff8a80}
-.row.crit.sel{border-color:#ff453a;background:#2d1717}
-.row.crit.sel .num{background:#ff453a!important;color:#fff!important}
+.wi{flex:none;display:inline-flex;align-items:center}
+.wi svg{display:block}
+.wn path.t{fill:#ffcc00;stroke:#1a1200;stroke-width:9;stroke-linejoin:round}
+.wn .e{fill:#1a1200}
+.wn{pointer-events:none}
 @media (orientation:landscape) and (min-width:700px){
   #devWrap{width:100%;height:calc(100% - 52px)}
   #app{flex-direction:row;flex-wrap:wrap}
@@ -162,7 +157,7 @@ RDEF[16]="Электроплита";
 var LDEF=["Верхний свет в комнате маман","Розетка в комнате с проектором (в неё подключён 2-й роутер Xiaomi AX6000)","Розетка в комнате маман","Розетка в комнате с барабанами","Удлинитель в гостиной у дивана (через умную розетку — конвектор Баллу инверт 25)","Удлинитель на кухню в гостиной: чайник, микроволновка, гриль, мультиварка (чёрный провод 3×2,5 мм²)","","","","","",""];
 var PANELS={
  left:{key:"shchitok.labels.v1",photo:"photo.jpg",vb:[2576,1840],polys:LP,sub:LSUB,defs:LDEF},
- right:{key:"shchitok.labels.right.v1",photo:"photo_right.jpg",vb:[2576,2509],polys:RP,sub:RSUB,defs:RDEF,crit:[15]}
+ right:{key:"shchitok.labels.right.v1",photo:"photo_right.jpg",vb:[2576,2509],polys:RP,sub:RSUB,defs:RDEF,warn:[15]}
 };
 var PKEY="shchitok.panel";
 var cur="left";
@@ -181,6 +176,7 @@ var sel=-1, zoom=1;
 function el(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
 function pstr(poly){var s=[];for(var j=0;j<poly.length;j++)s.push(poly[j][0]+","+poly[j][1]);return s.join(" ");}
 function center(poly){var x=0,y=0;for(var j=0;j<poly.length;j++){x+=poly[j][0];y+=poly[j][1];}return [x/poly.length,y/poly.length];}
+var WARN_SVG='<svg viewBox="0 0 24 24" width="28" height="28"><path d="M12 2.5 L23 21.5 H1 Z" fill="#ffcc00" stroke="#1a1200" stroke-width="1.4" stroke-linejoin="round"/><rect x="11" y="9" width="2" height="7" rx="1" fill="#1a1200"/><circle cx="12" cy="18.4" r="1.2" fill="#1a1200"/></svg>';
 var dim,hits,bds,rows,names;
 function build(){
   P=PANELS[cur]; loadEdits(); sel=-1;
@@ -202,11 +198,19 @@ function build(){
     g.appendChild(el("circle",{cx:c[0],cy:c[1],r:56}));
     var t=el("text",{x:c[0],y:c[1]+3}); t.textContent=String(i+1); g.appendChild(t);
     ov.appendChild(g); bds.push(g);
+    if(P.warn&&P.warn.indexOf(i)>=0){
+      var w=el("g",{"class":"wn"});
+      w.appendChild(el("path",{"class":"t",d:"M"+c[0]+","+(c[1]-186)+" L"+(c[0]+66)+","+(c[1]-72)+" L"+(c[0]-66)+","+(c[1]-72)+" Z"}));
+      w.appendChild(el("rect",{"class":"e",x:c[0]-6,y:c[1]-150,width:12,height:40,rx:6}));
+      w.appendChild(el("circle",{"class":"e",cx:c[0],cy:c[1]-94,r:8}));
+      ov.appendChild(w);
+    }
   }
   for(var i=0;i<n;i++){
     var r=document.createElement("div"); r.className="row";
     r.innerHTML='<div class="num"></div><div class="main"><div class="name"></div><div class="sub"></div></div><button class="edit" aria-label="Изменить">✎</button>';
     r.querySelector(".num").textContent=String(i+1);
+    if(P.warn&&P.warn.indexOf(i)>=0){var wi=document.createElement("span");wi.className="wi";wi.innerHTML=WARN_SVG;r.insertBefore(wi,r.querySelector(".edit"));}
     r.querySelector(".sub").textContent=P.sub[i]||"";
     (function(i,r){
       r.addEventListener("click",function(ev){ if(ev.target.closest(".edit")) return; select(i,true); });
@@ -221,7 +225,7 @@ function render(){
   for(var i=0;i<P.polys.length;i++){
     var s=label(i), nm=names[i];
     nm.textContent=s||"Не используется"; nm.className="name"+(s?"":" empty");
-    var cr=(P.crit&&P.crit.indexOf(i)>=0)?" crit":"";
+    var cr="";
     hits[i].setAttribute("class","hit"+(i===sel?" sel":"")+(s?"":" unused")+cr);
     bds[i].setAttribute("class","bd"+(s?" used":" unused")+(i===sel?" sel":"")+cr);
     rows[i].className="row"+(s?" used":" unused")+(i===sel?" sel":"")+cr;
@@ -307,7 +311,7 @@ var DEVS=[
   {t:"Свет 2-го этажа",p:"right",i:14},
   {t:"Уличное освещение",p:"right",i:14,c:[{t:"Лампы веранды (11 шт.)"},{t:"Прожекторы 2×100 Вт"},{t:"Прожектор 150 Вт"}]}
  ]},
- {t:"Холодильник",p:"right",i:15,c:[
+ {t:"Холодильник",p:"right",i:15,w:1,c:[
   {t:"Удлинитель холодильника",c:[{t:"Умная розетка для Баллу Коридор",c:[{t:"Конвектор Баллу инверт 25 (коридор)"}]},{t:"Сбер Хаб"}]}
  ]},
  {t:"Электроплита",p:"right",i:16}
@@ -340,6 +344,7 @@ function addNode(parent,n,lvl,idx,inh){
   var lb=lvl===0?(idx+1)+".":(lvl===1?LET.charAt(idx)+".":"–");
   row.innerHTML='<span class="lb"></span><span class="dt"></span>';
   row.querySelector(".lb").textContent=lb; row.querySelector(".dt").textContent=n.t;
+  if(n.w){var wi2=document.createElement("span");wi2.className="wi";wi2.innerHTML=WARN_SVG;row.appendChild(wi2);}
   if(n.p){var ch=document.createElement("span");ch.className="chip";ch.textContent=(n.p==="left"?"Левый":"Правый")+" №"+(n.i+1);row.appendChild(ch);}
   var kids=null;
   if(n.c&&lvl===0){
