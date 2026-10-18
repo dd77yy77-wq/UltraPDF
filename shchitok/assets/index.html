@@ -13,6 +13,8 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .tabs{flex:1;display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .tabs button{flex:1;background:none;border:0;color:var(--mut);font-size:13px;font-weight:700;padding:8px 2px;white-space:nowrap}
 .tabs button.on{background:var(--acc);color:#1a1200}
+#photoBox{position:relative;flex:none}
+#photoBox .zoom{position:absolute;top:8px;right:8px;z-index:3;background:rgba(26,29,36,.82);backdrop-filter:blur(4px)}
 .zoom{display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .zoom button{background:none;border:0;color:var(--mut);font-size:14px;font-weight:600;padding:7px 9px}
 .zoom button.on{background:var(--acc);color:#1a1200}
@@ -68,7 +70,18 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .btns .ok{background:var(--acc);color:#1a1200;border-color:var(--acc)}
 .reset{display:block;margin:10px auto 0;background:none;border:0;color:var(--mut);font-size:13px;padding:6px}
 #devWrap{display:none;flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(14px + env(safe-area-inset-bottom))}
-#app.dev #photoWrap,#app.dev #listWrap{display:none}
+#convWrap{display:none;flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(14px + env(safe-area-inset-bottom))}
+#app.dev #photoBox,#app.dev #listWrap,#app.conv #photoBox,#app.conv #listWrap{display:none}
+#app.conv #convWrap{display:block}
+.cv{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.cv:active{background:var(--card2)}
+.cv .ct{font-size:17px;font-weight:700}
+.cv .cr{font-size:13px;color:var(--mut);margin-top:2px}
+.cv .cs{margin:10px 0 0;display:flex;flex-direction:column;gap:0}
+.cv .st{display:flex;align-items:center;gap:8px;font-size:14px;padding:4px 0}
+.cv .st i{flex:none;font-style:normal;color:var(--acc2);width:18px;text-align:center}
+.cv .st.ar{color:var(--mut);font-size:12px;padding:0 0 0 0}
+.cv .go{display:inline-block;margin-top:10px;background:var(--acc);color:#1a1200;font-weight:700;font-size:13px;border-radius:999px;padding:5px 12px}
 #app.dev #devWrap{display:block}
 #app.dev .zoom{display:none}
 .dn{display:flex;align-items:center;gap:8px;border-radius:12px;padding:9px 8px;margin-bottom:4px;background:var(--card);border:1px solid var(--line)}
@@ -77,6 +90,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .dn .dt{flex:1;min-width:0;overflow-wrap:anywhere}
 .dn.l1{background:var(--card2);font-size:17px;font-weight:700;margin-top:8px}
 .dn.l2{margin-left:18px;font-size:16px;font-weight:600}
+.dn.l4{margin-left:62px;font-size:14px;font-weight:500;padding:7px 8px;background:transparent;border-color:transparent;border-left:2px solid var(--line);border-radius:0 10px 10px 0}
 .dn.l3{margin-left:40px;font-size:14px;font-weight:500;padding:7px 8px;background:transparent;border-color:transparent;border-left:2px solid var(--line);border-radius:0 10px 10px 0}
 .dn .chip{flex:none;font-size:12px;font-weight:700;color:#1a1200;background:var(--acc);border-radius:999px;padding:3px 9px}
 .dn .chev{flex:none;background:none;border:0;color:var(--mut);font-size:16px;padding:4px 8px;margin:-4px 0}
@@ -95,7 +109,9 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
   #devWrap{width:100%;height:calc(100% - 52px)}
   #app{flex-direction:row;flex-wrap:wrap}
   header{width:100%}
-  #photoWrap{width:58%;height:calc(100% - 52px);border:0;border-top:1px solid var(--line);display:flex;align-items:center}
+  #convWrap{width:100%;height:calc(100% - 52px)}
+  #photoBox{width:58%;height:calc(100% - 52px)}
+  #photoWrap{width:100%;height:100%;max-height:none;border:0;border-top:1px solid var(--line);display:flex;align-items:center}
   #stage{flex:none}
   #listWrap{width:42%;height:calc(100% - 52px)}
 }
@@ -104,19 +120,20 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 <body>
 <div id="app">
   <header>
-    <div class="tabs" id="tabs"><button data-p="left" class="on">Левый</button><button data-p="right">Правый</button><button data-p="dev">Устройства</button></div>
-    <div class="zoom" id="zoom"><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="3">3×</button></div>
+    <div class="tabs" id="tabs"><button data-p="left" class="on">Левый</button><button data-p="right">Правый</button><button data-p="dev">Устройства</button><button data-p="conv">Конвекторы</button></div>
   </header>
+  <div id="photoBox"><div class="zoom" id="zoom"><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="3">3×</button></div>
   <div id="photoWrap"><div id="stage">
     <img id="photo" src="photo.jpg" alt="Щиток">
     <svg id="ov" viewBox="0 0 2576 1840" preserveAspectRatio="none"></svg>
-  </div></div>
+  </div></div></div>
   <div id="listWrap">
     <p class="hint">Нажмите на устройство на фото или на строку в списке. Карандаш — изменить название.</p>
     <div id="list"></div>
     <div class="foot" id="foot"><span id="ver"></span><div class="fbtns"><button id="upd">Проверить обновления</button><button id="shr">Поделиться АПК</button></div></div>
   </div>
   <div id="devWrap"><p class="hint">Нажмите на устройство — откроется щиток и подсветится автомат, к которому оно подключено.</p><div id="devList"></div></div>
+  <div id="convWrap"><p class="hint">Нажмите на конвектор — откроется щиток и подсветится автомат, к которому он подключён.</p><div id="convList"></div></div>
 </div>
 <div id="modal"><div class="sheet">
   <h2 id="mTitle"></h2>
@@ -140,9 +157,9 @@ while(RDEF.length<17)RDEF.push("");
 RDEF[7]="Ванная: розетки в ванной, бойлер, скважина, септик, свет в ванной, очистка воды, греющий кабель";
 RDEF[9]="Удлинитель у окна на лестнице: роутеры Keenetic Runner 4G и 1-й (основной) AX6000, камера";
 RDEF[14]="Свет 1-го и 2-го этажа + всё уличное освещение";
-RDEF[15]="ХОЛОДИЛЬНИК. Удлинитель холодильника, конвектор, Сбер Хаб";
+RDEF[15]="ХОЛОДИЛЬНИК. Удлинитель холодильника, конвектор Баллу инверт 25 в коридоре (через умную розетку), Сбер Хаб";
 RDEF[16]="Электроплита";
-var LDEF=["Верхний свет в комнате маман","Розетка в комнате с проектором (в неё подключён 2-й роутер Xiaomi AX6000)","Розетка в комнате маман","Розетка в комнате с барабанами","Удлинитель в гостиной у дивана (к нему подключён конвектор)","","","","","","",""];
+var LDEF=["Верхний свет в комнате маман","Розетка в комнате с проектором (в неё подключён 2-й роутер Xiaomi AX6000)","Розетка в комнате маман","Розетка в комнате с барабанами","Удлинитель в гостиной у дивана (через умную розетку — конвектор Баллу инверт 25)","","","","","","",""];
 var PANELS={
  left:{key:"shchitok.labels.v1",photo:"photo.jpg",vb:[2576,1840],polys:LP,sub:LSUB,defs:LDEF},
  right:{key:"shchitok.labels.right.v1",photo:"photo_right.jpg",vb:[2576,2509],polys:RP,sub:RSUB,defs:RDEF,crit:[15]}
@@ -239,11 +256,11 @@ for(var k=0;k<zb.length;k++){(function(b){b.addEventListener("click",function(){
   if(sel>=0) centerPhoto(sel);
 });})(zb[k]);}
 var tb=document.querySelectorAll("#tabs button"), app=document.getElementById("app"), mode="panel";
-function markTabs(){var a=(mode==="dev")?"dev":cur;for(var j=0;j<tb.length;j++)tb[j].className=(tb[j].getAttribute("data-p")===a)?"on":"";app.className=(mode==="dev")?"dev":"";}
+function markTabs(){var a=(mode==="panel")?cur:mode;for(var j=0;j<tb.length;j++)tb[j].className=(tb[j].getAttribute("data-p")===a)?"on":"";app.className=(mode==="panel")?"":mode;}
 function setPanel(p){if(p!==cur){cur=p;try{localStorage.setItem(PKEY,cur);}catch(e){} mode="panel";markTabs();build();}else{mode="panel";markTabs();}}
 for(var k=0;k<tb.length;k++){(function(b){b.addEventListener("click",function(){
   var p=b.getAttribute("data-p");
-  if(p==="dev"){mode="dev";markTabs();return;}
+  if(p==="dev"||p==="conv"){mode=p;markTabs();return;}
   setPanel(p);
 });})(tb[k]);}
 function goTo(p,i){
@@ -259,7 +276,7 @@ var DEVS=[
   {t:"Камера в туалете"},
   {t:"Очистка воды"},
   {t:"Скважина"},
-  {t:"Розетки в ванной"},
+  {t:"Розетки в ванной",c:[{t:"Конвектор 18 (ванная)"}]},
   {t:"Свет в ванной"}
  ]},
  {t:"Вводное реле от столба",p:"right",i:0,c:[
@@ -273,13 +290,13 @@ var DEVS=[
   {t:"Розетка",p:"left",i:2}
  ]},
  {t:"Комната с проектором",c:[
-  {t:"Розетка",p:"left",i:1,c:[{t:"Второй роутер Xiaomi AX6000"}]}
+  {t:"Розетка",p:"left",i:1,c:[{t:"Второй роутер Xiaomi AX6000"},{t:"Конвектор 18 (проекторная)"}]}
  ]},
  {t:"Комната с барабанами",c:[
   {t:"Розетка",p:"left",i:3}
  ]},
  {t:"Гостиная",c:[
-  {t:"Удлинитель у дивана",p:"left",i:4,c:[{t:"Конвектор"}]}
+  {t:"Удлинитель у дивана",p:"left",i:4,c:[{t:"Умная розетка для Баллу Гостиная",c:[{t:"Конвектор Баллу инверт 25 (гостиная)"}]}]}
  ]},
  {t:"Лестница",c:[
   {t:"Удлинитель у окна",p:"right",i:9,c:[{t:"Роутер Keenetic Runner 4G"},{t:"Роутер AX6000 (1-й, основной)"},{t:"Камера"}]}
@@ -290,15 +307,35 @@ var DEVS=[
   {t:"Уличное освещение",p:"right",i:14,c:[{t:"Лампы веранды (11 шт.)"},{t:"Прожекторы 2×100 Вт"},{t:"Прожектор 150 Вт"}]}
  ]},
  {t:"Холодильник",p:"right",i:15,c:[
-  {t:"Удлинитель холодильника",c:[{t:"Конвектор"},{t:"Сбер Хаб"}]}
+  {t:"Удлинитель холодильника",c:[{t:"Умная розетка для Баллу Коридор",c:[{t:"Конвектор Баллу инверт 25 (коридор)"}]},{t:"Сбер Хаб"}]}
  ]},
  {t:"Электроплита",p:"right",i:16}
 ];
+var CONV=[
+ {t:"Баллу инверт 25",r:"Гостиная",chain:["Умная розетка «Розетка для Баллу Гостиная»","Удлинитель у дивана"],p:"left",i:4},
+ {t:"Баллу инверт 25",r:"Коридор",chain:["Умная розетка «Розетка для Баллу Коридор»","Удлинитель холодильника"],p:"right",i:15},
+ {t:"Конвектор 18",r:"Ванная",chain:["Розетка в ванной"],p:"right",i:7},
+ {t:"Конвектор 18",r:"Проекторная",chain:["Розетка в проекторной"],p:"left",i:1}
+];
+var convList=document.getElementById("convList");
+for(var q=0;q<CONV.length;q++){(function(c){
+  var d=document.createElement("div"); d.className="cv";
+  var h='<div class="ct"></div><div class="cr"></div><div class="cs">';
+  for(var j=0;j<c.chain.length;j++) h+='<div class="st ar"><i>↓</i></div><div class="st"><i>●</i><span></span></div>';
+  h+='</div><span class="go"></span>';
+  d.innerHTML=h;
+  d.querySelector(".ct").textContent=c.t+" — "+c.r;
+  d.querySelector(".cr").textContent="Конвектор · "+c.r;
+  var sp=d.querySelectorAll(".st span"); for(var j=0;j<sp.length;j++) sp[j].textContent=c.chain[j];
+  d.querySelector(".go").textContent="Автомат: "+(c.p==="left"?"Левый":"Правый")+" №"+(c.i+1)+" ›";
+  d.addEventListener("click",function(){goTo(c.p,c.i);});
+  convList.appendChild(d);
+})(CONV[q]);}
 var LET="abcdefghijklmnopqrstuvwxyz";
 var devList=document.getElementById("devList");
 function addNode(parent,n,lvl,idx,inh){
   var p=n.p||inh.p, i=(n.i!==undefined)?n.i:inh.i;
-  var row=document.createElement("div"); row.className="dn l"+(lvl+1);
+  var row=document.createElement("div"); row.className="dn l"+Math.min(lvl+1,4);
   var lb=lvl===0?(idx+1)+".":(lvl===1?LET.charAt(idx)+".":"–");
   row.innerHTML='<span class="lb"></span><span class="dt"></span>';
   row.querySelector(".lb").textContent=lb; row.querySelector(".dt").textContent=n.t;
