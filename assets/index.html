@@ -48,6 +48,9 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:4px 6px}
 .modal.on{display:flex}
 .modal .card{width:min(88vw,360px);max-height:86%;background:var(--pop);border:1px solid var(--line);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:10px}
 .modal .ttl{font-size:21px;font-weight:700}
+.wm{display:block;height:var(--wmh,28px);width:auto;align-self:flex-start;object-fit:contain}
+.wm.l{display:none}body.light .wm.d{display:none}body.light .wm.l{display:block}
+.modal .wm{--wmh:30px}#empty .wm{--wmh:34px;align-self:center}
 .modal .aicon{display:block;width:72px;height:72px;margin:0 0 10px;border-radius:16px}
 .modal .ver,.modal .hint{color:var(--dim);font-size:14px}
 .modal .card>button{width:100%;flex:none}
@@ -201,7 +204,7 @@ body.fs #fsx{display:flex}
   <div class="modal" id="about">
     <div class="card">
       <img class="aicon" src="icon.png" alt="" width="72" height="72">
-      <div class="ttl">UltraPDF</div>
+      <img class="wm d" src="wordmark-dark.png" alt="UltraPDF"><img class="wm l" src="wordmark-light.png" alt="UltraPDF">
       <div class="ver" id="aver"></div>
       <button class="acc" id="a-upd">Проверить обновления</button>
       <button id="a-apk">Отправить файл APK</button>
@@ -212,7 +215,7 @@ body.fs #fsx{display:flex}
   </div>
   <button id="fsx" title="Выйти из полного экрана" aria-label="Выйти из полного экрана"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   <div id="empty">
-    <div class="big">UltraPDF</div>
+    <img class="wm d" src="wordmark-dark.png" alt="UltraPDF"><img class="wm l" src="wordmark-light.png" alt="UltraPDF">
     <div class="msg" id="emsg">Открой PDF-файл из памяти телефона. Файл никуда не отправляется.</div>
     <button class="acc" id="open2">Выбрать PDF</button>
   </div>
