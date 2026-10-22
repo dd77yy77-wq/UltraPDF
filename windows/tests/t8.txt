@@ -1,0 +1,10 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+wheel -120
+info Z:\tmp\t\08a.txt
+wait 100
+info Z:\tmp\t\08b.txt
+wait 1000
+info Z:\tmp\t\08c.txt
+quit

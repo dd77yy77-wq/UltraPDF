@@ -1,0 +1,14 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+cmd fitp
+wait 1500
+info Z:\tmp\t\07a.txt
+shot Z:\tmp\t\07a.bmp
+click 270 575
+wait 1500
+info Z:\tmp\t\07b.txt
+cmd back
+wait 1500
+info Z:\tmp\t\07c.txt
+quit

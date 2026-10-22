@@ -1,0 +1,29 @@
+size 1100 760
+shot Z:\tmp\t\06a.bmp
+open Z:\home\claude\ultrapdf\windows\tests\locked.pdf
+wait 1200
+dlgpw wrong
+wait 1500
+shot Z:\tmp\t\06b.bmp
+dlgpw secret
+wait 2000
+shot Z:\tmp\t\06c.bmp
+info Z:\tmp\t\06c.txt
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+cmd side_outline
+click 100 100
+wait 300
+cmd fitp
+wait 800
+shot Z:\tmp\t\06d.bmp
+cmd present
+wait 1500
+shot Z:\tmp\t\06e.bmp
+key 39
+wait 800
+cmd fullscreen
+wait 1500
+shot Z:\tmp\t\06f.bmp
+info Z:\tmp\t\06f.txt
+quit

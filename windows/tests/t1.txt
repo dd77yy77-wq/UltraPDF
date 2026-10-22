@@ -1,0 +1,6 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 3000
+shot Z:\tmp\t\01.bmp
+info Z:\tmp\t\01.txt
+quit

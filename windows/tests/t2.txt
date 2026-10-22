@@ -1,0 +1,29 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+wheel -120
+wheel -120
+wheel -120
+wait 1500
+shot Z:\tmp\t\02a.bmp
+cmd fitp
+wait 1200
+shot Z:\tmp\t\02b.bmp
+cmd fitw
+cmd side_outline
+wait 800
+text Лиса
+startfind
+wait 2500
+shot Z:\tmp\t\02c.bmp
+info Z:\tmp\t\02c.txt
+drag 200 200 520 330
+wait 800
+shot Z:\tmp\t\02d.bmp
+cmd copy
+dumpclip Z:\tmp\t\02d.clip
+info Z:\tmp\t\02d.txt
+cmd night
+wait 1500
+shot Z:\tmp\t\02e.bmp
+quit

@@ -1,0 +1,14 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+cmd day
+cmd find
+wait 1500
+text лиса
+startfind
+wait 2500
+shot Z:\tmp\t\04a.bmp
+cmd side_pages
+wait 1000
+shot Z:\tmp\t\04b.bmp
+quit
