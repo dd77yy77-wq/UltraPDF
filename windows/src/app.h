@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 17
-#define APP_VERSION_NAME L"1.7"
-#define APP_VERSION_NAME_A "1.7"
+#define APP_VERSION_CODE 18
+#define APP_VERSION_NAME L"1.8"
+#define APP_VERSION_NAME_A "1.8"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -359,6 +359,8 @@ void ViewSync();                         // rebuild layout/scrollbars for the cu
 void ViewGoPage(int page, float yPt, bool animate, bool pushBack);
 int ViewCurPage();
 void ViewZoom(double z, int anchorX, int anchorY);
+void ViewPinch(double ratio, int cx, int cy, bool follow, double tau);   // smooth pinch / Ctrl+wheel zoom (snapshot is stretched, real zoom applied when input pauses)
+void ViewPinchFlush();
 void ViewZoomStep(int dir, int anchorX = -1, int anchorY = -1);
 void ViewSetFit(int fit);
 void ViewRotate(int dir);

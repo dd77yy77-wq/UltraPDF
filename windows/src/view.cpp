@@ -244,6 +244,122 @@ void ViewInvalidate() { if (g_hw) InvalidateRect(g_hw, nullptr, FALSE); }
 // a tile arrived: while the scroll animation runs the next vsync frame draws it anyway, an extra paint at a random moment only costs time
 void ViewInvalidateTiles() { if (g_anim) return; ViewInvalidate(); }
 
+
+// ---------------------------------------------------------------- pinch zoom
+// While fingers (or Ctrl+wheel / touchpad pinch) are changing the zoom, the real layout is NOT touched: the picture that
+// was on screen is a snapshot and is simply stretched around the pinch point on every frame (one cheap draw, no re-layout,
+// no page rendering). When the input pauses, the real zoom is applied once, and the snapshot stays on screen until the new
+// tiles are ready, so there is no blur-then-sharp flash and no blank pages.
+static bool g_pz = false;                 // pinch in progress
+static bool g_hold = false;               // after the commit: snapshot still covers tiles that are not ready yet
+static uint64_t g_holdUntil = 0;
+static Gdiplus::Bitmap* g_snapGp = nullptr;
+static HBITMAP g_snapBmp = nullptr;
+static HDC g_snapDC = nullptr;
+static int g_snapW = 0, g_snapH = 0, g_pzDoc = -1;
+static double g_pzZ0 = 1, g_pzTarget = 1, g_pzShown = 1;
+static int g_pzAx = 0, g_pzAy = 0;        // content point (client coords at the start) that stays under the fingers
+static int g_pzCx = 0, g_pzCy = 0;        // where the fingers are now
+static double g_pzLastIn = 0;
+static double g_pzTau = 45;               // smoothing time constant, ms (0 = follow the input exactly)
+static void StartAnim();
+
+static void PzFree() {
+  delete g_snapGp;
+  g_snapGp = nullptr;
+  if (g_snapDC) { DeleteDC(g_snapDC); g_snapDC = nullptr; }
+  if (g_snapBmp) { DeleteObject(g_snapBmp); g_snapBmp = nullptr; }
+  g_pz = false;
+  g_hold = false;
+}
+
+// draws the snapshot stretched so that the point (ax,ay) of it lies at (cx,cy); r = zoom ratio
+static void PzDraw(HDC dc, RECT rc, double r, bool fast) {
+  if (!g_snapGp || r <= 0) return;
+  double l = g_pzAx + (0 - g_pzCx) / r, rt = g_pzAx + (rc.right - g_pzCx) / r;
+  double tp = g_pzAy + (0 - g_pzCy) / r, bt = g_pzAy + (rc.bottom - g_pzCy) / r;
+  double sl = max(0.0, l), sr = min((double)g_snapW, rt), st = max(0.0, tp), sb = min((double)g_snapH, bt);
+  if (sr - sl < 1 || sb - st < 1) return;
+  if (fast && g_snapDC) {                                // while the zoom is changing: one plain StretchBlt, a few ms
+    int dl = (int)lround(g_pzCx + (sl - g_pzAx) * r), dt = (int)lround(g_pzCy + (st - g_pzAy) * r);
+    int dw = (int)lround((sr - sl) * r), dh = (int)lround((sb - st) * r);
+    SetStretchBltMode(dc, r < 1.0 ? HALFTONE : COLORONCOLOR);
+    SetBrushOrgEx(dc, 0, 0, nullptr);
+    StretchBlt(dc, dl, dt, max(dw, 1), max(dh, 1), g_snapDC, (int)lround(sl), (int)lround(st), max(1, (int)lround(sr - sl)), max(1, (int)lround(sb - st)), SRCCOPY);
+    return;
+  }
+  Gdiplus::Graphics g(dc);
+  g.SetInterpolationMode(r < 1.0 ? Gdiplus::InterpolationModeHighQualityBilinear : Gdiplus::InterpolationModeBilinear);
+  g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+  Gdiplus::RectF dst((Gdiplus::REAL)(g_pzCx + (sl - g_pzAx) * r), (Gdiplus::REAL)(g_pzCy + (st - g_pzAy) * r),
+                     (Gdiplus::REAL)((sr - sl) * r), (Gdiplus::REAL)((sb - st) * r));
+  g.DrawImage(g_snapGp, dst, (Gdiplus::REAL)sl, (Gdiplus::REAL)st, (Gdiplus::REAL)(sr - sl), (Gdiplus::REAL)(sb - st), Gdiplus::UnitPixel);
+}
+
+static void PzCommit() {
+  if (!g_pz) return;
+  Tab* t = CurTab();
+  g_pz = false;
+  if (!t || !t->doc || t->doc->id != g_pzDoc) { PzFree(); return; }
+  double z = g_pzTarget;
+  ViewZoom(z, g_pzAx, g_pzAy);
+  g_zoomBusy = 0;                                        // render the new tiles right away
+  if (g_pzCx != g_pzAx || g_pzCy != g_pzAy) ViewScrollBy(g_pzAx - g_pzCx, g_pzAy - g_pzCy, false);
+  g_pzShown = g_pzTarget;
+  g_hold = true;
+  g_holdUntil = NowMs() + 700;
+  SetTimer(g_hw, TMR_ZOOM, 720, nullptr);                // ends the hold even if no tile ever arrives
+  ViewInvalidate();
+}
+void ViewPinchFlush() { PzCommit(); }
+
+// ratio: multiplicative zoom change; (cx,cy): pinch centre in client coords; follow: the centre moves with the fingers
+void ViewPinch(double ratio, int cx, int cy, bool follow, double tau) {
+  Tab* t = CurTab();
+  if (!t || !t->doc || !(ratio > 0)) return;
+  ViewEnsureLayout(t);
+  if (!g_pz) {
+    UpdateWindow(g_hw);                                  // the back buffer must show the current state
+    if (!g_backDC || g_backW <= 0 || g_backH <= 0) { ViewZoom(t->zoom * ratio, cx, cy); return; }
+    PzFree();
+    HBITMAP hb = CreateCompatibleBitmap(g_backDC, g_backW, g_backH);
+    HDC m = CreateCompatibleDC(g_backDC);
+    HGDIOBJ old = SelectObject(m, hb);
+    BitBlt(m, 0, 0, g_backW, g_backH, g_backDC, 0, 0, SRCCOPY);
+    SelectObject(m, old);
+    DeleteDC(m);
+    g_snapGp = Gdiplus::Bitmap::FromHBITMAP(hb, nullptr);
+    g_snapBmp = hb;
+    g_snapDC = CreateCompatibleDC(g_backDC);
+    SelectObject(g_snapDC, g_snapBmp);
+    if (!g_snapGp) { ViewZoom(t->zoom * ratio, cx, cy); return; }
+    g_snapW = g_backW; g_snapH = g_backH;
+    g_pzDoc = t->doc->id;
+    g_pzZ0 = g_pzTarget = g_pzShown = t->zoom;
+    g_pzAx = g_pzCx = cx; g_pzAy = g_pzCy = cy;
+    g_pz = true;
+  }
+  g_pzTarget = min(max(g_pzTarget * ratio, 0.1), 16.0);
+  if (follow) { g_pzCx = cx; g_pzCy = cy; }
+  g_pzTau = tau;
+  g_pzLastIn = QpcMs();
+  g_hold = false;
+  StartAnim();
+}
+
+// one animation tick of the pinch; returns true while it needs more ticks
+static bool PzTick(double dt) {
+  if (!g_pz) return false;
+  double lt = log(g_pzTarget), ls = log(g_pzShown);
+  double k = g_pzTau <= 0 ? 1.0 : 1.0 - exp(-min(max(dt, 1.0), 100.0) / g_pzTau);
+  ls += (lt - ls) * k;
+  if (fabs(lt - ls) < 0.0015) ls = lt;
+  g_pzShown = exp(ls);
+  if (g_pzShown == g_pzTarget && QpcMs() - g_pzLastIn > 130) { PzCommit(); return false; }
+  ViewInvalidate();
+  return true;
+}
+
 static void StartAnim() {
   if (!g_anim) {
     if (!g_vsEvent) {
@@ -267,6 +383,7 @@ static void AfterScrollChange(Tab* t) {
 }
 
 void ViewScrollBy(int dx, int dy, bool animate) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -283,6 +400,7 @@ void ViewScrollBy(int dx, int dy, bool animate) {
 }
 
 static void ScrollTo(Tab* t, double x, double y, bool animate) {
+  if (g_pz) PzCommit();
   t->tx = x; t->ty = y;
   ClampScroll(t);
   if (animate) StartAnim();
@@ -290,6 +408,7 @@ static void ScrollTo(Tab* t, double x, double y, bool animate) {
 }
 
 void ViewGoPage(int page, float yPt, bool animate, bool pushBack) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -335,6 +454,7 @@ static void SetAnchor(Tab* t, const Anchor& a, int ax, int ay) {
 }
 
 void ViewZoom(double z, int ax, int ay) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -353,6 +473,7 @@ void ViewZoom(double z, int ax, int ay) {
 }
 
 void ViewZoomStep(int dir, int ax, int ay) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -365,6 +486,7 @@ void ViewZoomStep(int dir, int ax, int ay) {
 }
 
 void ViewSetFit(int fit) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -383,6 +505,7 @@ void ViewSetFit(int fit) {
 }
 
 void ViewRotate(int dir) {
+  if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   ViewEnsureLayout(t);
@@ -907,8 +1030,19 @@ static void OnPaint(HWND hw) {
     DrawTextW2(dc, L"Загрузка…", rc, T.dim, UiFont(S(16)), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
   } else if (!t->doc) {
     DrawTextW2(dc, t->error.empty() ? L"Не удалось открыть документ" : t->error, rc, T.dim, UiFont(S(15)), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  } else if (g_pz && (g_pzDoc != t->doc->id || g_snapW != rc.right || g_snapH != rc.bottom)) {
+    PzFree();                                           // the window was resized or the document changed under the pinch
+    PaintDoc(dc, rc, t);
+  } else if (g_pz) {
+    PzDraw(dc, rc, g_pzShown / g_pzZ0, g_pzShown != g_pzTarget || QpcMs() - g_pzLastIn < 70);
   } else {
     PaintDoc(dc, rc, t);
+    if (g_hold) {
+      if (g_pzDoc == t->doc->id && g_snapW == rc.right && g_snapH == rc.bottom && g_visMiss && NowMs() < g_holdUntil) {
+        { HBRUSH hb2 = CreateSolidBrush(bg); FillRect(dc, &rc, hb2); DeleteObject(hb2); }
+        PzDraw(dc, rc, g_pzTarget / g_pzZ0, false);
+      } else PzFree();
+    }
   }
   if (A_.fullscreen) PaintFullscreenButton(dc, rc);
   DrawToast(dc, rc);
@@ -1018,7 +1152,12 @@ static void ShowCtxMenu(HWND hw, int sx, int sy) {
 
 static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
-    case WM_CREATE: g_hw = hw; return 0;
+    case WM_CREATE: {
+      g_hw = hw;
+      GESTURECONFIG gc = {GID_ZOOM, GC_ZOOM, 0};
+      SetGestureConfig(hw, 0, 1, &gc, sizeof(gc));
+      return 0;
+    }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: OnPaint(hw); return 0;
     case WM_SIZE: {
@@ -1042,7 +1181,25 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       ViewInvalidate();
       return 0;
     }
+    case WM_GESTURE: {
+      // touch screen: two-finger pinch = zoom around the centre between the fingers (it follows when the fingers move)
+      GESTUREINFO gi = {sizeof(gi)};
+      if (!GetGestureInfo((HGESTUREINFO)lp, &gi) || gi.dwID != GID_ZOOM) break;
+      static ULONGLONG lastArg = 0;
+      POINT c = {gi.ptsLocation.x, gi.ptsLocation.y};
+      ScreenToClient(hw, &c);
+      if (gi.dwFlags & GF_BEGIN) lastArg = gi.ullArguments;
+      else if (lastArg > 0 && gi.ullArguments > 0) {
+        double r = (double)gi.ullArguments / (double)lastArg;
+        lastArg = gi.ullArguments;
+        if (r > 0.2 && r < 5.0) ViewPinch(r, c.x, c.y, true, 0);
+      }
+      if (gi.dwFlags & GF_END) lastArg = 0;
+      CloseGestureInfoHandle((HGESTUREINFO)lp);
+      return 0;
+    }
     case WM_VSCROLL: case WM_HSCROLL: {
+      if (g_pz) PzCommit();
       Tab* t = CurTab();
       if (!t || !t->doc) return 0;
       bool vert = msg == WM_VSCROLL;
@@ -1076,9 +1233,10 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       ScreenToClient(hw, &pt);
       ViewEnsureLayout(t);
       if (msg == WM_MOUSEWHEEL && (LOWORD(wp) & MK_CONTROL)) {
-        ViewZoom(t->zoom * pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y);
+        ViewPinch(pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y, false, 45);
         return 0;
       }
+      if (g_pz) PzCommit();
       if (A_.presentation) {
         static int acc = 0;
         acc += delta;
@@ -1100,6 +1258,11 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       double dt = now - g_lastQpcF;
       g_lastQpcF = now;
       if (!t || !t->doc) { g_anim = false; return 0; }
+      if (g_pz) {
+        if (!PzTick(dt)) g_anim = (fabs(t->ty - t->sy) >= 0.6 || fabs(t->tx - t->sx) >= 0.6);
+        UpdateWindow(hw);
+        return 0;
+      }
       double k = 1.0 - exp(-min(max(dt, 1.0), 100.0) / 70.0);
       double dy = t->ty - t->sy, dx = t->tx - t->sx;
       if (fabs(dy) < 0.6 && fabs(dx) < 0.6) { t->sy = t->ty; t->sx = t->tx; g_anim = false; }
@@ -1127,6 +1290,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: {
+      if (g_pz) PzCommit();
       SetFocus(hw);
       int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
       Tab* t = CurTab();

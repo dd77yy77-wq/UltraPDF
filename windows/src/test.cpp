@@ -159,15 +159,15 @@ static void ScriptThread(ws script) {
         }
       });
     } else if (c == "wheelrep") {
-      int n = 0, d = 0, ms = 16;
-      sscanf(rest.c_str(), "%d %d %d", &n, &d, &ms);
+      int n = 0, d = 0, ms = 16, ctrl = 0;
+      sscanf(rest.c_str(), "%d %d %d %d", &n, &d, &ms, &ctrl);
       for (int i = 0; i < n; i++) {
         OnUI([=]() {
           RECT rc;
           GetClientRect(A_.view, &rc);
           POINT pt = {rc.right / 2, rc.bottom / 2};
           ClientToScreen(A_.view, &pt);
-          SendMessageW(A_.view, WM_MOUSEWHEEL, MAKEWPARAM(0, (short)d), MAKELPARAM(pt.x, pt.y));
+          SendMessageW(A_.view, WM_MOUSEWHEEL, MAKEWPARAM(ctrl ? MK_CONTROL : 0, (short)d), MAKELPARAM(pt.x, pt.y));
         });
         Sleep(ms);
       }

@@ -1,0 +1,14 @@
+# Pinch zoom stress (touchpad-like ctrl+wheel stream): ULTRAPDF_TRACE=<file>
+size 1500 900
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 3000
+shot Z:\tmp\t\26a.bmp
+wheelrep 60 30 16 1
+shot Z:\tmp\t\26m.bmp
+wait 40
+wheelrep 60 -40 16 1
+shot Z:\tmp\t\26n.bmp
+wait 3000
+shot Z:\tmp\t\26b.bmp
+info Z:\tmp\t\26.txt
+quit
