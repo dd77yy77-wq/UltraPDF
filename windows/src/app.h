@@ -374,6 +374,7 @@ void SideRebuildOutline(Tab* t);
 void PrintDoc(HWND owner);
 void CheckUpdates(bool manual);
 void OnUpdateMsg(WPARAM wp, LPARAM lp);
+void ApplyDownloaded(const ws& neu);
 extern HANDLE g_mutex;
 void ShowAbout(HWND owner);
 bool InputPassword(HWND owner, const ws& file, bool retry, ws* out);

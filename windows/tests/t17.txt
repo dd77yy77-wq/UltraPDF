@@ -1,0 +1,19 @@
+size 1300 800
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+cmd side_pages
+wait 500
+clickside 80 330
+wait 1200
+info Z:\tmp\t\17a.txt
+cmd side_outline
+wait 500
+clickside 100 90
+clickside 100 130
+wait 1200
+info Z:\tmp\t\17b.txt
+shot Z:\tmp\t\17b.bmp
+cmd rotcw
+wait 800
+info Z:\tmp\t\17c.txt
+quit

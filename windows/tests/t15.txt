@@ -1,0 +1,16 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+cmd pro
+cmd sepia
+wait 1500
+shot Z:\tmp\t\15a.bmp
+cmd pro
+cmd day
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 1500
+cmd closetab
+cmd closetab
+wait 500
+shot Z:\tmp\t\15b.bmp
+quit

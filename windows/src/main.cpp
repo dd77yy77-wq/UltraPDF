@@ -206,7 +206,7 @@ void MainLayout() {
   bool showFind = A_.findOpen && t && t->doc;
   if (showFind) { g_findR = {0, y, W, y + FindH()}; y += FindH(); } else g_findR = {0, 0, 0, 0};
   bool showSide = G.sidebar && t && t->doc;
-  int sw = showSide ? G.sideW : 0;
+  int sw = showSide ? S(G.sideW) : 0;
   bool hdr = showSide && G.pro;
   int hh = hdr ? HdrH() : 0;
   g_hdrR = {0, y, sw, y + hh};
@@ -309,7 +309,7 @@ static void DrawTabs(HDC dc) {
   int n = (int)A_.tabs.size();
   int plusW = S(34);
   int avail = g_tabsR.right - S(8) - plusW - S(8);
-  int tw = n ? min(S(220), max(S(90), avail / n)) : S(150);
+  int tw = n ? min(S(220), max(S(56), avail / n)) : S(150);
   int x = S(6);
   for (int i = 0; i < n && i < 64; i++) {
     RECT r = {x, S(5), x + tw - S(2), TabH()};
@@ -1033,7 +1033,7 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_APP_UPDATE: OnUpdateMsg(wp, lp); return 0;
-    case WM_APP_TESTCMD: if (lp) { auto* f = (std::function<void()>*)lp; (*f)(); } return 0;
+    case WM_APP_TESTCMD: if (lp) { auto* f = (std::function<void()>*)lp; (*f)(); if (wp == 1) delete f; } return 0;
     case WM_DROPFILES: {
       HDROP d = (HDROP)wp;
       UINT n = DragQueryFileW(d, 0xFFFFFFFF, nullptr, 0);
@@ -1068,7 +1068,7 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
       if (!g_chromeTrack) { TRACKMOUSEEVENT te = {sizeof(te), TME_LEAVE, hw, 0}; TrackMouseEvent(&te); g_chromeTrack = true; }
       if (g_splitDrag) {
-        G.sideW = min(max(x, S(160)), S(560));
+        G.sideW = min(max(x * 96 / A_.dpi, 160), 560);
         MainLayout();
         return 0;
       }
@@ -1192,6 +1192,7 @@ bool MainCreate(HINSTANCE inst, int show, const ws& cmdline) {
   GDFW gd = (GDFW)GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow");
   A_.dpi = gd ? gd(A_.main) : 96;
   if (A_.dpi < 48) A_.dpi = 96;
+  { wchar_t e[16]; if (GetEnvironmentVariableW(L"ULTRAPDF_DPI", e, 16) > 0) A_.dpi = _wtoi(e); }
   A_.view = ViewCreate(A_.main);
   A_.side = SideCreate(A_.main);
   A_.pageEdit = CreateWindowExW(0, L"EDIT", L"1", WS_CHILD | ES_CENTER | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 10, 10, A_.main, nullptr, inst, nullptr);

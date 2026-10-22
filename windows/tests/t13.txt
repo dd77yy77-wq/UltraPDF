@@ -1,0 +1,5 @@
+size 1100 760
+open Z:\tmp\t\files\bad.pdf
+wait 2500
+shot Z:\tmp\t\13a.bmp
+quit

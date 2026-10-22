@@ -121,7 +121,7 @@ void CheckUpdates(bool manual) {
   }).detach();
 }
 
-static void ApplyDownloaded(const ws& neu) {
+void ApplyDownloaded(const ws& neu) {
   ws self = ExePath();
   ws old = self + L".old";
   DeleteFileW(old.c_str());

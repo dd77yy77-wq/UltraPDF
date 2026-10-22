@@ -105,9 +105,8 @@ static double FitScale(Tab* t, int mode) {
 
 static void Relayout(Tab* t) {
   if (!t->doc) return;
-  t->viewW = g_vw;
-  t->viewH = g_vh;
-  if (t->viewW < 10 || t->viewH < 10) return;
+  t->viewW = max(g_vw, 400);
+  t->viewH = max(g_vh, 300);
   if (t->fit) t->zoom = FitScale(t, t->fit) * 72.0 / Dpi();
   t->zoom = min(max(t->zoom, 0.05), 32.0);
   t->scale = t->zoom * Dpi() / 72.0;

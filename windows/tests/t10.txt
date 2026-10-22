@@ -1,0 +1,13 @@
+size 1500 880
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+cmd find
+text лиса
+startfind
+wait 2000
+shot Z:\tmp\t\10a.bmp
+postcmd about
+wait 800
+shotscreen Z:\tmp\t\10b.bmp
+closedlg
+quit

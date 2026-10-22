@@ -5,11 +5,12 @@
 
 static void OnUI(std::function<void()> f) { SendMessageW(A_.main, WM_APP_TESTCMD, 0, (LPARAM)&f); }
 
-static void SaveShot(const std::string& file) {
+static void SaveShot(const std::string& file, bool full = false) {
   RECT rc;
   GetClientRect(A_.main, &rc);
   POINT pt = {0, 0};
   ClientToScreen(A_.main, &pt);
+  if (full) { rc.right = GetSystemMetrics(SM_CXSCREEN); rc.bottom = GetSystemMetrics(SM_CYSCREEN); pt = {0, 0}; }
   HDC sdc = GetDC(nullptr);
   HDC mdc = CreateCompatibleDC(sdc);
   HBITMAP bm = CreateCompatibleBitmap(sdc, rc.right, rc.bottom);
@@ -51,6 +52,7 @@ static void ScriptThread(ws script) {
   std::ifstream in(WToUtf8(script));
   std::string line;
   Sleep(800);
+  OnUI([]() { SetForegroundWindow(A_.main); SetActiveWindow(A_.main); SetFocus(A_.view); });
   while (std::getline(in, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
     if (line.empty() || line[0] == '#') continue;
@@ -64,6 +66,10 @@ static void ScriptThread(ws script) {
     else if (c == "open") { ws p = Utf8ToW(rest); OnUI([p]() { OpenPath(p); }); }
     else if (c == "cmd") { int id = NameToCmd(rest); OnUI([id]() { if (id) DoCmd(id); }); }
     else if (c == "shot") SaveShot(rest);
+    else if (c == "shotscreen") SaveShot(rest, true);
+    else if (c == "postcmd") { int id = NameToCmd(rest); if (rest == "menu") id = ID_OPEN + 1000; if (rest == "about") id = ID_ABOUT; PostMessageW(A_.main, WM_COMMAND, 0, 0); auto* f = new std::function<void()>([id]() { DoCmd(id); }); PostMessageW(A_.main, WM_APP_TESTCMD, 1, (LPARAM)f); }
+    else if (c == "endmenu") { OnUI([]() { EndMenu(); }); }
+    else if (c == "closedlg") { HWND d = FindWindowW(L"UltraPDF.Dlg", nullptr); if (d) SendMessageW(d, WM_COMMAND, 2, 0); }
     else if (c == "size") {
       int w, h;
       sscanf(rest.c_str(), "%d %d", &w, &h);
@@ -101,6 +107,13 @@ static void ScriptThread(ws script) {
           SendMessageW(A_.view, WM_LBUTTONDBLCLK, MK_LBUTTON, MAKELPARAM(x, y));
           SendMessageW(A_.view, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
         }
+      });
+    } else if (c == "clickside") {
+      int x, y;
+      sscanf(rest.c_str(), "%d %d", &x, &y);
+      OnUI([=]() {
+        SendMessageW(A_.side, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+        SendMessageW(A_.side, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
       });
     } else if (c == "clickmain") {
       int x, y;
@@ -167,6 +180,10 @@ static void ScriptThread(ws script) {
         }
         Sleep(100);
       }
+    } else if (c == "applyupdate") {
+      ws p = Utf8ToW(rest);
+      SetEnvironmentVariableW(L"ULTRAPDF_TEST", nullptr);
+      OnUI([p]() { ApplyDownloaded(p); });
     } else if (c == "quit") {
       PostMessageW(A_.main, WM_CLOSE, 0, 0);
       return;

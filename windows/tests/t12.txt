@@ -1,0 +1,15 @@
+size 1100 760
+open Z:\tmp\t\files\bad.pdf
+wait 1000
+info Z:\tmp\t\12a.txt
+shot Z:\tmp\t\12a.bmp
+open Z:\tmp\t\files\empty.pdf
+wait 1000
+info Z:\tmp\t\12b.txt
+open Z:\tmp\t\files\Договор №1 — копия (проверка).pdf
+wait 2000
+info Z:\tmp\t\12c.txt
+shot Z:\tmp\t\12c.bmp
+open Z:\tmp\t\files\missing.pdf
+wait 500
+quit

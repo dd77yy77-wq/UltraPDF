@@ -1,0 +1,16 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+cmd sidebar
+zoom 6
+wait 2500
+shot Z:\tmp\t\11a.bmp
+info Z:\tmp\t\11a.txt
+wheel -120 0
+wheel -120 0
+wait 1500
+shot Z:\tmp\t\11b.bmp
+zoom 2
+wait 1500
+shot Z:\tmp\t\11c.bmp
+quit

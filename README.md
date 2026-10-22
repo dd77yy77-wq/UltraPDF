@@ -19,3 +19,14 @@
 (aapt2 → javac → d8 → zipalign → apksigner). Внутренние нестатические классы в Java не использовать: d8 8.2 на них падает.
 
 Тесты (без телефона): `node tests/ui_test.js assets/index.html` (интерфейс на заглушке DOM), `node tests/pdfjs_helpers_test.js` (оглавление, ссылки, текст на настоящем pdf.js и `tests/fixture.pdf`), `python3 tests/e2e_browser.py /tmp/e2e` (настоящий Chromium через Playwright, приложение имитируется).
+
+## Windows (`windows/`)
+
+Нативный просмотрщик под Windows 10/11 x64: один портативный файл `UltraPDF.exe` (C++17, Win32 + GDI+, рендер PDFium, всё внутри exe; при первом запуске `pdfium.dll` распаковывается в `%LOCALAPPDATA%\UltraPDF`).
+Вкладки, миниатюры/оглавление/закладки в боковой панели, плавная прокрутка, масштаб (колесо с Ctrl, по ширине/странице), поиск (в том числе по кириллице без учёта регистра), выделение и копирование текста, ссылки и возврат (Alt+←), поворот, печать, пароль, день/сепия/ночь, полный экран и презентация (F5), перетаскивание файлов, история, сессия вкладок, ассоциация с .pdf.
+Режим Pro (как на телефоне) по умолчанию включён.
+Автообновление: читает `version-win.json` из этого репозитория, скачивает `UltraPDF.exe`, проверяет SHA-256 и подменяет себя. Для новой версии: собрать, положить `UltraPDF.exe` в корень, обновить `code`/`name`/`sha256` в `version-win.json`.
+Подписи кода нет, поэтому SmartScreen при первом запуске предупреждает («Подробнее» → «Выполнить в любом случае»).
+
+Сборка (Linux, кросс-компиляция): `cd windows && TC=/path/llvm-mingw PDFIUM_INC=/path/pdfium/include ./build.sh` (нужны llvm-mingw и pdfium-win-x64 от bblanchon; `res/pdfium.dll` кладётся в ресурсы).
+Тесты: `windows/tests/run.sh tN.txt <сек>` запускает exe под Wine с переменной `ULTRAPDF_TEST=<скрипт>` (команды open, cmd, click, shot, info и т.д.), примеры в `windows/tests/`.

@@ -1,0 +1,24 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+key 40
+wait 600
+info Z:\tmp\t\14a.txt
+key 34
+wait 900
+info Z:\tmp\t\14b.txt
+key 35
+wait 1500
+info Z:\tmp\t\14c.txt
+key 36
+wait 1500
+info Z:\tmp\t\14d.txt
+cmd present
+wait 800
+key 39
+wait 500
+info Z:\tmp\t\14e.txt
+key 27
+wait 500
+info Z:\tmp\t\14f.txt
+quit

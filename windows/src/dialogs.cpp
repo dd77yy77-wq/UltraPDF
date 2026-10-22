@@ -44,7 +44,7 @@ static LRESULT CALLBACK DlgProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         DrawTextW2(dc, L"UltraPDF", r, T.text, UiFont(S(24), true), DT_CENTER | DT_SINGLELINE);
         r = {0, S(166), rc.right, S(190)};
         DrawTextW2(dc, FmtT(L"Версия для Windows %s (сборка %d)", APP_VERSION_NAME, APP_VERSION_CODE), r, T.dim, UiFont(S(13)), DT_CENTER | DT_SINGLELINE);
-        r = {S(20), S(196), rc.right - S(20), S(250)};
+        r = {S(20), S(194), rc.right - S(20), S(236)};
         DrawTextW2(dc, L"Просмотр PDF без лишнего. Движок отрисовки PDFium (Apache-2.0).\nПароли, оглавление, поиск, закладки, печать — в режиме Pro.", r,
                    T.dim, UiFont(S(13)), DT_CENTER | DT_WORDBREAK);
       } else if (st) {
@@ -172,11 +172,11 @@ bool InputPassword(HWND owner, const ws& file, bool retry, ws* out) {
 void ShowAbout(HWND owner) {
   DlgState st;
   st.kind = 1;
-  HWND d = MakeDlg(owner, L"О программе", S(460), S(330), &st);
-  MkButton(d, L"Проверить обновления", IDB_UPD, S(20), S(262), S(200), S(34), false);
-  MkButton(d, L"Страница на GitHub", IDB_WEB, S(236), S(262), S(204), S(34), false);
-  MkButton(d, L"Назначить для PDF…", IDB_ASSOC, S(20), S(216), S(200), S(34), false);
-  MkButton(d, L"Закрыть", IDB_CANCEL, S(236), S(216), S(204), S(34), true);
+  HWND d = MakeDlg(owner, L"О программе", S(460), S(350), &st);
+  MkButton(d, L"Назначить для PDF…", IDB_ASSOC, S(20), S(248), S(200), S(34), false);
+  MkButton(d, L"Закрыть", IDB_CANCEL, S(236), S(248), S(204), S(34), true);
+  MkButton(d, L"Проверить обновления", IDB_UPD, S(20), S(292), S(200), S(34), false);
+  MkButton(d, L"Страница на GitHub", IDB_WEB, S(236), S(292), S(204), S(34), false);
   RunModal(owner, d, &st);
   if (st.result == 2) CheckUpdates(true);
   else if (st.result == 3) RegisterAssoc();

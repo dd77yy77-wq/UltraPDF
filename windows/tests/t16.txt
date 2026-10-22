@@ -1,0 +1,4 @@
+size 1100 760
+wait 800
+shot Z:\tmp\t\16a.bmp
+quit

@@ -1,0 +1,25 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+postcmd menu
+wait 800
+shotscreen Z:\tmp\t\09a.bmp
+endmenu
+wait 300
+postcmd about
+wait 800
+shotscreen Z:\tmp\t\09b.bmp
+closedlg
+wait 300
+cmd themedark
+wait 500
+postcmd about
+wait 800
+shotscreen Z:\tmp\t\09c.bmp
+closedlg
+wait 300
+postcmd menu
+wait 800
+shotscreen Z:\tmp\t\09d.bmp
+endmenu
+quit
