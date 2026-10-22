@@ -60,6 +60,14 @@ static std::vector<StartItem> g_start;
 static int g_startHover = -1;
 static RECT g_closeBtn = {0, 0, 0, 0};
 
+static double g_singleMP = -1;
+// small pages are rendered whole, big ones in tiles
+static bool IsSingle(int pw, int ph) {
+  if (g_singleMP < 0) { wchar_t e[16]; g_singleMP = GetEnvironmentVariableW(L"ULTRAPDF_SINGLE_MP", e, 16) > 0 ? _wtof(e) : 0; }
+  if (g_singleMP > 0) return (double)pw * ph <= g_singleMP * 1e6;
+  // whole pages up to ~12 megapixels: one render per page is several times cheaper than 8 tiles (every tile re-decodes/re-scales page images)
+  return (double)pw * ph <= 12e6;
+}
 static int Margin() { return S(14); }
 static int Gap() { return S(10); }
 
@@ -675,7 +683,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
   HBRUSH baseBr = CreateSolidBrush(base);
   HBRUSH borderBr = CreateSolidBrush(border);
   HDC mdc = CreateCompatibleDC(dc);
-  SetStretchBltMode(dc, HALFTONE);
+  SetStretchBltMode(dc, g_anim ? COLORONCOLOR : HALFTONE);      // HALFTONE is slow; a placeholder that is replaced in a moment doesn't need it
   SetBrushOrgEx(dc, 0, 0, nullptr);
   int docId = t->doc->id;
   int rotq = t->rot & 3;
@@ -696,7 +704,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
     RECT br2 = {px - 1, py - 1, px + pw + 1, py + ph + 1};
     if (!A_.presentation) FrameRect(dc, &br2, borderBr);
     FillRect(dc, &pr, baseBr);
-    bool single = pw <= 1500 && ph <= 1700;
+    bool single = IsSingle(pw, ph);
     int tw = single ? pw : 1024, th = single ? ph : 768;
     int nx = (pw + tw - 1) / tw, ny = (ph + th - 1) / th;
     // preview as a fallback
@@ -761,7 +769,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
       bool vis = i >= first && i <= last;
       bool ahead = vis || (dirS > 0 ? i > last : i < first);
       int pw = t->pwpx[i], ph = t->phpx[i];
-      bool single = pw <= 1500 && ph <= 1700;
+      bool single = IsSingle(pw, ph);
       int py = t->ytop[i] - (int)lround(t->sy);
       int px = PageLeft(t, i) - (int)lround(t->sx);
       if (!vis && (ahead ? bytesAhead >= LIM_AHEAD : bytesBehind >= LIM_BEHIND)) continue;
