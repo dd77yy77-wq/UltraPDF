@@ -32,6 +32,7 @@ static DWORD WINAPI VsyncThread(LPVOID) {
 }
 extern int g_ticks; extern int g_timerRet;
 static uint64_t g_zoomBusy = 0;
+static double g_lastPaintMs = 0;                   // cost of the previous frame: decides whether the nicer (slower) stretching is affordable
 static bool g_visMiss = true;
 static int g_trMiss = 0, g_trBlank = 0, g_trQueue = 0;
 static FILE* g_trace = nullptr;
@@ -261,8 +262,12 @@ static double g_pzZ0 = 1, g_pzTarget = 1, g_pzShown = 1;
 static int g_pzAx = 0, g_pzAy = 0;        // content point (client coords at the start) that stays under the fingers
 static int g_pzCx = 0, g_pzCy = 0;        // where the fingers are now
 static double g_pzLastIn = 0;
+static bool g_pzHq = true;                // nice interpolation of the snapshot while frames stay cheap
 static double g_pzTau = 45;               // smoothing time constant, ms (0 = follow the input exactly)
 static void StartAnim();
+static void PzCaptureAnchor(Tab* t, int ax, int ay);
+static void PzApplyLive();
+static void AfterScrollChange(Tab* t);
 
 static void PzFree() {
   delete g_snapGp;
@@ -275,7 +280,7 @@ static void PzFree() {
 
 // draws the snapshot stretched so that the point (ax,ay) of it lies at (cx,cy); r = zoom ratio
 static void PzDraw(HDC dc, RECT rc, double r, bool fast) {
-  if (!g_snapGp || r <= 0) return;
+  if (!g_snapBmp || r <= 0) return;
   double l = g_pzAx + (0 - g_pzCx) / r, rt = g_pzAx + (rc.right - g_pzCx) / r;
   double tp = g_pzAy + (0 - g_pzCy) / r, bt = g_pzAy + (rc.bottom - g_pzCy) / r;
   double sl = max(0.0, l), sr = min((double)g_snapW, rt), st = max(0.0, tp), sb = min((double)g_snapH, bt);
@@ -283,11 +288,13 @@ static void PzDraw(HDC dc, RECT rc, double r, bool fast) {
   if (fast && g_snapDC) {                                // while the zoom is changing: one plain StretchBlt, a few ms
     int dl = (int)lround(g_pzCx + (sl - g_pzAx) * r), dt = (int)lround(g_pzCy + (st - g_pzAy) * r);
     int dw = (int)lround((sr - sl) * r), dh = (int)lround((sb - st) * r);
-    SetStretchBltMode(dc, r < 1.0 ? HALFTONE : COLORONCOLOR);
+    SetStretchBltMode(dc, COLORONCOLOR);                 // HALFTONE is far too slow on a big screen
     SetBrushOrgEx(dc, 0, 0, nullptr);
     StretchBlt(dc, dl, dt, max(dw, 1), max(dh, 1), g_snapDC, (int)lround(sl), (int)lround(st), max(1, (int)lround(sr - sl)), max(1, (int)lround(sb - st)), SRCCOPY);
     return;
   }
+  if (!g_snapGp) g_snapGp = Gdiplus::Bitmap::FromHBITMAP(g_snapBmp, nullptr);   // only for still frames, never while fingers move
+  if (!g_snapGp) return;
   Gdiplus::Graphics g(dc);
   g.SetInterpolationMode(r < 1.0 ? Gdiplus::InterpolationModeHighQualityBilinear : Gdiplus::InterpolationModeBilinear);
   g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
@@ -301,11 +308,11 @@ static void PzCommit() {
   Tab* t = CurTab();
   g_pz = false;
   if (!t || !t->doc || t->doc->id != g_pzDoc) { PzFree(); return; }
-  double z = g_pzTarget;
-  ViewZoom(z, g_pzAx, g_pzAy);
-  g_zoomBusy = 0;                                        // render the new tiles right away
-  if (g_pzCx != g_pzAx || g_pzCy != g_pzAy) ViewScrollBy(g_pzAx - g_pzCx, g_pzAy - g_pzCy, false);
   g_pzShown = g_pzTarget;
+  PzApplyLive();
+  g_zoomBusy = 0;                                        // render the new tiles right away
+  AfterScrollChange(t);
+  MainRedrawChrome();
   g_hold = true;
   g_holdUntil = NowMs() + 700;
   SetTimer(g_hw, TMR_ZOOM, 720, nullptr);                // ends the hold even if no tile ever arrives
@@ -328,16 +335,16 @@ void ViewPinch(double ratio, int cx, int cy, bool follow, double tau) {
     BitBlt(m, 0, 0, g_backW, g_backH, g_backDC, 0, 0, SRCCOPY);
     SelectObject(m, old);
     DeleteDC(m);
-    g_snapGp = Gdiplus::Bitmap::FromHBITMAP(hb, nullptr);
     g_snapBmp = hb;
     g_snapDC = CreateCompatibleDC(g_backDC);
     SelectObject(g_snapDC, g_snapBmp);
-    if (!g_snapGp) { ViewZoom(t->zoom * ratio, cx, cy); return; }
     g_snapW = g_backW; g_snapH = g_backH;
     g_pzDoc = t->doc->id;
     g_pzZ0 = g_pzTarget = g_pzShown = t->zoom;
     g_pzAx = g_pzCx = cx; g_pzAy = g_pzCy = cy;
+    PzCaptureAnchor(t, cx, cy);
     g_pz = true;
+    g_pzHq = true;
   }
   g_pzTarget = min(max(g_pzTarget * ratio, 0.1), 16.0);
   if (follow) { g_pzCx = cx; g_pzCy = cy; }
@@ -355,7 +362,8 @@ static bool PzTick(double dt) {
   ls += (lt - ls) * k;
   if (fabs(lt - ls) < 0.0015) ls = lt;
   g_pzShown = exp(ls);
-  if (g_pzShown == g_pzTarget && QpcMs() - g_pzLastIn > 130) { PzCommit(); return false; }
+  if (g_pzShown == g_pzTarget && QpcMs() - g_pzLastIn > 60) { PzCommit(); return false; }
+  PzApplyLive();
   ViewInvalidate();
   return true;
 }
@@ -451,6 +459,20 @@ static void SetAnchor(Tab* t, const Anchor& a, int ax, int ay) {
   t->sx = PageLeft(t, a.page) + a.xPt * t->scale - ax;
   t->ty = t->sy; t->tx = t->sx;
   ClampScroll(t);
+}
+
+static Anchor g_pzAnc;
+static void PzCaptureAnchor(Tab* t, int ax, int ay) { g_pzAnc = GetAnchor(t, ax, ay); }
+// the real layout follows the pinch every frame (cheap: no tiles are requested while it moves), so what lies outside the
+// stretched snapshot (when zooming out) is already real page content, not an empty background
+static void PzApplyLive() {
+  Tab* t = CurTab();
+  if (!t || !t->doc) return;
+  t->fit = 0;
+  t->zoom = g_pzShown;
+  t->fitRef = g_pzAnc.page;
+  Relayout(t);
+  SetAnchor(t, g_pzAnc, g_pzCx, g_pzCy);
 }
 
 void ViewZoom(double z, int ax, int ay) {
@@ -806,7 +828,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
   HBRUSH baseBr = CreateSolidBrush(base);
   HBRUSH borderBr = CreateSolidBrush(border);
   HDC mdc = CreateCompatibleDC(dc);
-  SetStretchBltMode(dc, g_anim ? COLORONCOLOR : HALFTONE);      // HALFTONE is slow; a placeholder that is replaced in a moment doesn't need it
+  SetStretchBltMode(dc, (g_anim && g_lastPaintMs > 14) ? COLORONCOLOR : HALFTONE);      // HALFTONE is slow; a placeholder that is replaced in a moment doesn't need it
   SetBrushOrgEx(dc, 0, 0, nullptr);
   int docId = t->doc->id;
   int rotq = t->rot & 3;
@@ -867,7 +889,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
         }
       }
     }
-    if (needPv && !havePv && !zooming) {
+    if (needPv && !havePv) {                            // low-res previews are cheap, also while the zoom moves
       double pvs = min(1.0, 720.0 / max(pw, 1));
       pvs = min(pvs, 1000.0 / max(ph, 1));
       int vw2 = max(8, (int)(pw * pvs)), vh2 = max(8, (int)(ph * pvs));
@@ -876,7 +898,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
     if (G.pro && !zooming && !GetPageDataNow(t->doc, i, false)) ReqPageData(CONS_VIEW, t->doc, i, 200);
   }
   // prefetch: whole small pages (by memory budget) and tiles of big pages around the view, nearest first, ahead first
-  if (!zooming) {
+  if (!zooming && !g_pz) {
     static int dirS = 1;
     if (t->ty > t->sy + 0.5) dirS = 1; else if (t->ty < t->sy - 0.5) dirS = -1;
     std::vector<int> ord;
@@ -1034,11 +1056,17 @@ static void OnPaint(HWND hw) {
     PzFree();                                           // the window was resized or the document changed under the pinch
     PaintDoc(dc, rc, t);
   } else if (g_pz) {
-    PzDraw(dc, rc, g_pzShown / g_pzZ0, g_pzShown != g_pzTarget || QpcMs() - g_pzLastIn < 70);
+    PaintDoc(dc, rc, t);                                // real pages (previews while moving)
+    if (g_pzShown >= g_pzZ0) {
+      uint64_t d0 = GetTickCount64();
+      PzDraw(dc, rc, g_pzShown / g_pzZ0, !g_pzHq);
+      if (g_pzHq && GetTickCount64() - d0 > 14) g_pzHq = false;      // too slow on this machine: plain stretching for the rest of this pinch
+    }
+      // zoomed in: the sharp snapshot covers the whole window; zoomed out the real pages already fill it, a stretched snapshot would only leave a ghost seam
   } else {
     PaintDoc(dc, rc, t);
     if (g_hold) {
-      if (g_pzDoc == t->doc->id && g_snapW == rc.right && g_snapH == rc.bottom && g_visMiss && NowMs() < g_holdUntil) {
+      if (g_pzDoc == t->doc->id && g_snapW == rc.right && g_snapH == rc.bottom && g_visMiss && NowMs() < g_holdUntil && g_pzTarget >= g_pzZ0) {
         { HBRUSH hb2 = CreateSolidBrush(bg); FillRect(dc, &rc, hb2); DeleteObject(hb2); }
         PzDraw(dc, rc, g_pzTarget / g_pzZ0, false);
       } else PzFree();
@@ -1051,6 +1079,7 @@ static void OnPaint(HWND hw) {
   g_paintAvg = (g_paintAvg * g_paintN + (double)(GetTickCount64() - t0)) / (g_paintN + 1);
   if (g_paintN < 50) g_paintN++;
   g_paintTotal++;
+  g_lastPaintMs = (double)(GetTickCount64() - t0);
   if (!g_traceInit) { g_traceInit = true; wchar_t e[512]; if (GetEnvironmentVariableW(L"ULTRAPDF_TRACE", e, 512) > 0) g_trace = _wfopen(e, L"w"); }
   if (g_trace) { Tab* tt = CurTab(); fprintf(g_trace, "%llu sy=%.1f miss=%d blank=%d ms=%llu\n", (unsigned long long)GetTickCount64(), tt ? tt->sy : 0.0, g_trMiss, g_trBlank, (unsigned long long)(GetTickCount64() - t0)); fflush(g_trace); }
 }
@@ -1233,7 +1262,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       ScreenToClient(hw, &pt);
       ViewEnsureLayout(t);
       if (msg == WM_MOUSEWHEEL && (LOWORD(wp) & MK_CONTROL)) {
-        ViewPinch(pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y, false, 45);
+        ViewPinch(pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y, false, 25);
         return 0;
       }
       if (g_pz) PzCommit();
