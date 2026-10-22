@@ -713,25 +713,28 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
     }
     if (G.pro && !zooming && !GetPageDataNow(t->doc, i, false)) ReqPageData(CONS_VIEW, t->doc, i, 6);
   }
-  // prefetch: tiles and previews around the view, nearest first, ahead of the scroll direction first
+  // prefetch: whole small pages (by memory budget) and tiles of big pages around the view, nearest first, ahead first
   if (!zooming) {
     static int dirS = 1;
     if (t->ty > t->sy + 0.5) dirS = 1; else if (t->ty < t->sy - 0.5) dirS = -1;
-    int lo = max(0, first - 3), hi = min(n - 1, last + 3);
+    std::vector<int> ord;
+    if (dirS > 0) { for (int i = first; i < n; i++) ord.push_back(i); for (int i = first - 1; i >= 0; i--) ord.push_back(i); }
+    else { for (int i = last; i >= 0; i--) ord.push_back(i); for (int i = last + 1; i < n; i++) ord.push_back(i); }
     int mAhead = vh * 8 / 5, mBehind = vh * 3 / 5;
     int mTop = dirS > 0 ? mBehind : mAhead, mBot = dirS > 0 ? mAhead : mBehind;
-    std::vector<int> ord;
-    if (dirS > 0) { for (int i = first; i <= hi; i++) ord.push_back(i); for (int i = first - 1; i >= lo; i--) ord.push_back(i); }
-    else { for (int i = last; i >= lo; i--) ord.push_back(i); for (int i = last + 1; i <= hi; i++) ord.push_back(i); }
-    int budget = 12;
+    double bytesAhead = 0, bytesBehind = 0;
+    const double LIM_AHEAD = 190e6, LIM_BEHIND = 60e6;
+    int rankA = 0, rankB = 0, jobs = 0;
     for (int i : ord) {
-      if (budget <= 0) break;
-      int py = t->ytop[i] - (int)lround(t->sy);
+      if (jobs >= 48 || (bytesAhead >= LIM_AHEAD && bytesBehind >= LIM_BEHIND)) break;
+      bool vis = i >= first && i <= last;
+      bool ahead = vis || (dirS > 0 ? i > last : i < first);
       int pw = t->pwpx[i], ph = t->phpx[i];
-      if (py >= vh + mBot || py + ph <= -mTop) continue;
-      int px = PageLeft(t, i) - (int)lround(t->sx);
       bool single = pw <= 1500 && ph <= 1700;
-      if (i < first || i > last) {
+      int py = t->ytop[i] - (int)lround(t->sy);
+      int px = PageLeft(t, i) - (int)lround(t->sx);
+      if (!vis && (ahead ? bytesAhead >= LIM_AHEAD : bytesBehind >= LIM_BEHIND)) continue;
+      if (!vis) {
         TileKey pk;
         pk.doc = docId; pk.page = i; pk.rot = rotq; pk.mode = G.readMode; pk.kind = 1; pk.zq = 0;
         Tile pv;
@@ -740,27 +743,43 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
           pvs = min(pvs, 1100.0 / max(ph, 1));
           int vw2 = max(8, (int)(pw * pvs)), vh2 = max(8, (int)(ph * pvs));
           ReqTile(CONS_VIEW, t->doc, pk, vw2, vh2, 0, 0, vw2, vh2, 2);
+          jobs++;
         }
       }
-      int tw = single ? pw : 1024, th = single ? ph : 768;
+      if (single) {
+        if (vis) continue;                                  // handled above
+        (ahead ? bytesAhead : bytesBehind) += (double)pw * ph * 4;
+        TileKey k;
+        k.doc = docId; k.page = i; k.tx = 0; k.ty = 0; k.zq = zq; k.rot = rotq; k.mode = G.readMode; k.kind = 0;
+        Tile tl;
+        if (!CacheGetLocked(k, &tl)) {
+          ReqTile(CONS_VIEW, t->doc, k, pw, ph, 0, 0, pw, ph, ahead ? 10 + rankA : 100 + rankB);
+          jobs++;
+        }
+        if (ahead) rankA++; else rankB++;
+        continue;
+      }
+      if (py >= vh + mBot || py + ph <= -mTop) continue;
+      int tw = 1024, th = 768;
       int nx = (pw + tw - 1) / tw, ny = (ph + th - 1) / th;
-      for (int ty = 0; ty < ny && budget > 0; ty++) {
+      for (int ty = 0; ty < ny; ty++) {
         int oy = ty * th, h = min(th, ph - oy);
         int top = py + oy, bot = top + h;
         if (bot <= -mTop || top >= vh + mBot) continue;
         if (top < vh && bot > 0) continue;                 // visible: handled above
-        bool ahead = dirS > 0 ? top >= vh : bot <= 0;
-        for (int tx = 0; tx < nx && budget > 0; tx++) {
+        bool tahead = dirS > 0 ? top >= vh : bot <= 0;
+        for (int tx = 0; tx < nx; tx++) {
           int ox = tx * tw, w = min(tw, pw - ox);
           if (px + ox >= vw || px + ox + w <= 0) continue;
           TileKey k;
           k.doc = docId; k.page = i; k.tx = tx; k.ty = ty; k.zq = zq; k.rot = rotq; k.mode = G.readMode; k.kind = 0;
           Tile tl;
           if (CacheGetLocked(k, &tl)) continue;
-          ReqTile(CONS_VIEW, t->doc, k, pw, ph, ox, oy, w, h, ahead ? 3 : 4);
-          budget--;
+          ReqTile(CONS_VIEW, t->doc, k, pw, ph, ox, oy, w, h, tahead ? 10 + rankA : 100 + rankB);
+          jobs++;
         }
       }
+      if (ahead) rankA++; else rankB++;
     }
   }
   CacheUnlock();

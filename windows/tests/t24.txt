@@ -1,0 +1,121 @@
+size 1500 900
+open Z:\tmp\vy\v.pdf
+wait 3000
+zoom 0.82
+wait 2500
+info Z:\tmp\t\24a.txt
+shot Z:\tmp\t\24a.bmp
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wait 100
+shot Z:\tmp\t\24_0.bmp
+wait 200
+shot Z:\tmp\t\24_1.bmp
+wait 300
+shot Z:\tmp\t\24_2.bmp
+wait 400
+shot Z:\tmp\t\24_3.bmp
+wait 600
+shot Z:\tmp\t\24_4.bmp
+wait 2500
+shot Z:\tmp\t\24_5.bmp
+info Z:\tmp\t\24b.txt
+quit
