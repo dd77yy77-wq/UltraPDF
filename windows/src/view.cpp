@@ -362,7 +362,7 @@ void ViewPinch(double ratio, int cx, int cy, bool follow, double tau) {
     g_pzAx = g_pzCx = cx; g_pzAy = g_pzCy = cy;
     PzCaptureAnchor(t, cx, cy);
     g_pz = true;
-    g_pzHq = true;
+    g_pzHq = false;                                      // the first frame must not wait for a GDI+ copy of the whole screen; the smooth stretch is for still frames
   }
   g_pzTarget = min(max(g_pzTarget * ratio, 0.1), 16.0);
   if (follow) { g_pzCx = cx; g_pzCy = cy; }
@@ -1080,7 +1080,9 @@ static void OnPaint(HWND hw) {
     PzFree();                                           // the window was resized or the document changed under the pinch
     PaintDoc(dc, rc, t);
   } else if (g_pz) {
-    PaintDoc(dc, rc, t);                                // real pages (previews while moving)
+    // zooming in: the stretched snapshot covers the whole window, so the pages under it would be drawn for nothing (and their
+    // tiles would be out of date next frame); zooming out: the real pages (previews while moving) fill what the snapshot lacks
+    if (g_pzShown < g_pzZ0) PaintDoc(dc, rc, t);
     if (g_pzShown >= g_pzZ0) {
       uint64_t d0 = GetTickCount64();
       PzDraw(dc, rc, g_pzShown / g_pzZ0, !g_pzHq);
