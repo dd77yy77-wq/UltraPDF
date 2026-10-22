@@ -56,6 +56,24 @@ static POINT g_lastClickPt;
 static Link g_pendLink;
 static bool g_trackLeave = false;
 
+// Pointer input API (Windows 8+): declared here and resolved at run time, so the exe still starts on Windows 7
+#ifndef WM_POINTERDOWN
+#define WM_POINTERUPDATE 0x0245
+#define WM_POINTERDOWN 0x0246
+#define WM_POINTERUP 0x0247
+#define WM_POINTERCAPTURECHANGED 0x024C
+#endif
+struct PtrInfo { DWORD type; UINT32 id; UINT32 frame; DWORD flags; HANDLE src; HWND target; POINT px; POINT himetric; char rest[160]; };
+typedef BOOL(WINAPI* GetPointerInfoFn)(UINT32, PtrInfo*);
+static GetPointerInfoFn PtrGetInfo() {
+  static GetPointerInfoFn fn = [] { HMODULE u = GetModuleHandleW(L"user32.dll"); return u ? (GetPointerInfoFn)GetProcAddress(u, "GetPointerInfo") : nullptr; }();
+  return fn;
+}
+struct TouchPt { bool on = false; UINT id = 0; POINT p = {0, 0}; };
+static TouchPt g_tp[2];
+static double g_tpDist = 0;
+static bool g_tpPinching = false;
+
 struct StartItem { RECT r; ws path; int cmd; };
 static std::vector<StartItem> g_start;
 static int g_startHover = -1;
@@ -352,6 +370,12 @@ void ViewPinch(double ratio, int cx, int cy, bool follow, double tau) {
   g_pzLastIn = QpcMs();
   g_hold = false;
   StartAnim();
+  if (tau <= 0) {                                        // direct input (fingers): react in this very message
+    g_pzShown = g_pzTarget;
+    PzApplyLive();
+    ViewInvalidate();
+    UpdateWindow(g_hw);
+  }
 }
 
 // one animation tick of the pinch; returns true while it needs more ticks
@@ -360,9 +384,9 @@ static bool PzTick(double dt) {
   double lt = log(g_pzTarget), ls = log(g_pzShown);
   double k = g_pzTau <= 0 ? 1.0 : 1.0 - exp(-min(max(dt, 1.0), 100.0) / g_pzTau);
   ls += (lt - ls) * k;
-  if (fabs(lt - ls) < 0.0015) ls = lt;
-  g_pzShown = exp(ls);
-  if (g_pzShown == g_pzTarget && QpcMs() - g_pzLastIn > 60) { PzCommit(); return false; }
+  bool arrived = fabs(lt - ls) < 0.0015;
+  g_pzShown = arrived ? g_pzTarget : exp(ls);              // exp(log(x)) is not exactly x: compare with a tolerance, not with ==
+  if (arrived && QpcMs() - g_pzLastIn > 60) { PzCommit(); return false; }
   PzApplyLive();
   ViewInvalidate();
   return true;
@@ -836,7 +860,7 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
   ReqBegin(CONS_VIEW);
   CacheLock();
   bool anyMiss = false;
-  CacheFocus(docId, first, PageAtDocY(t, t->sy + vh));
+  CacheFocus(docId, first, PageAtDocY(t, t->sy + vh), zq);
   g_trMiss = 0; g_trBlank = 0;
   int last = first;
   for (int i = first; i < n; i++) {
@@ -1210,9 +1234,42 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       ViewInvalidate();
       return 0;
     }
+    case WM_POINTERDOWN: case WM_POINTERUPDATE: case WM_POINTERUP: case WM_POINTERCAPTURECHANGED: {
+      // Two fingers on the touch screen: pinch straight from the raw finger positions (the OS gesture recogniser waits for a
+      // threshold and reports late). Everything is still passed on, so taps, one-finger pan and mouse emulation keep working.
+      UINT id = LOWORD(wp);
+      GetPointerInfoFn gpi = PtrGetInfo();
+      PtrInfo pi = {};
+      if (!gpi || !gpi(id, &pi) || pi.type != 2 /* PT_TOUCH */) break;
+      POINT p = pi.px;
+      ScreenToClient(hw, &p);
+      bool up = msg == WM_POINTERUP || msg == WM_POINTERCAPTURECHANGED;
+      int slot = -1;
+      for (int i = 0; i < 2; i++) if (g_tp[i].on && g_tp[i].id == id) slot = i;
+      if (up) { if (slot >= 0) g_tp[slot].on = false; g_tpDist = 0; break; }
+      if (slot < 0 && msg == WM_POINTERDOWN) { for (int i = 0; i < 2; i++) if (!g_tp[i].on) { slot = i; break; } if (slot >= 0) { g_tp[slot].on = true; g_tp[slot].id = id; } }
+      if (slot < 0) break;
+      g_tp[slot].p = p;
+      if (g_tp[0].on && g_tp[1].on) {
+        double d = hypot((double)(g_tp[0].p.x - g_tp[1].p.x), (double)(g_tp[0].p.y - g_tp[1].p.y));
+        int cx = (g_tp[0].p.x + g_tp[1].p.x) / 2, cy = (g_tp[0].p.y + g_tp[1].p.y) / 2;
+        if (g_tpDist <= 0) g_tpDist = max(d, 1.0);
+        else if (d > 0) {
+          double r = d / g_tpDist;
+          g_tpDist = d;
+          g_tpPinching = true;
+          ViewPinch(r, cx, cy, true, 0);
+        }
+      }
+      break;                                              // and on to DefWindowProc
+    }
     case WM_GESTURE: {
-      // touch screen: two-finger pinch = zoom around the centre between the fingers (it follows when the fingers move)
       GESTUREINFO gi = {sizeof(gi)};
+      if (g_tpPinching && g_tp[0].on && g_tp[1].on) {     // the pinch is already handled from the raw fingers
+        if (GetGestureInfo((HGESTUREINFO)lp, &gi)) CloseGestureInfoHandle((HGESTUREINFO)lp);
+        return 0;
+      }
+      g_tpPinching = false;
       if (!GetGestureInfo((HGESTUREINFO)lp, &gi) || gi.dwID != GID_ZOOM) break;
       static ULONGLONG lastArg = 0;
       POINT c = {gi.ptsLocation.x, gi.ptsLocation.y};
@@ -1262,7 +1319,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       ScreenToClient(hw, &pt);
       ViewEnsureLayout(t);
       if (msg == WM_MOUSEWHEEL && (LOWORD(wp) & MK_CONTROL)) {
-        ViewPinch(pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y, false, 25);
+        ViewPinch(pow(1.0 + 0.1, delta / 120.0), pt.x, pt.y, abs(delta) < 100, abs(delta) < 100 ? 0 : 40);
         return 0;
       }
       if (g_pz) PzCommit();

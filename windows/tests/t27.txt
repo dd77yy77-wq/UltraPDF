@@ -1,0 +1,11 @@
+# Direct (finger-like) pinch, no smoothing: ULTRAPDF_TRACE=<file>
+size 1500 900
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 3000
+pinchrep 80 1.03 8
+shot Z:\tmp\t\27m.bmp
+wait 40
+pinchrep 80 0.96 8
+wait 3000
+shot Z:\tmp\t\27b.bmp
+quit

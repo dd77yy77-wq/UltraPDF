@@ -171,6 +171,18 @@ static void ScriptThread(ws script) {
         });
         Sleep(ms);
       }
+    } else if (c == "pinchrep") {                      // direct (finger-like) pinch: n steps of the given zoom ratio
+      int n = 0, ms = 8;
+      double r = 1.0;
+      sscanf(rest.c_str(), "%d %lf %d", &n, &r, &ms);
+      for (int i = 0; i < n; i++) {
+        OnUI([=]() {
+          RECT rc;
+          GetClientRect(A_.view, &rc);
+          ViewPinch(r, rc.right / 2 + i, rc.bottom / 2, true, 0);
+        });
+        Sleep(ms);
+      }
     } else if (c == "hover") {
       int x, y;
       sscanf(rest.c_str(), "%d %d", &x, &y);

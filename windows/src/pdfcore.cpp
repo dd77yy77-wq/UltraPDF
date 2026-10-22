@@ -189,10 +189,11 @@ bool CacheGetLocked(const TileKey& k, Tile* t) {
 }
 // eviction keeps what is near the view: tiles of other documents go first, then tiles of the pages farthest from the visible range;
 // pages on screen are only evicted when nothing else is left (plain LRU made previews of far pages push out the visible tiles)
-static int g_focDoc = -1, g_focFirst = 0, g_focLast = 0;
-void CacheFocus(int docId, int first, int last) { g_focDoc = docId; g_focFirst = first; g_focLast = last; }   // call with the cache locked
+static int g_focDoc = -1, g_focFirst = 0, g_focLast = 0, g_focZq = 0;
+void CacheFocus(int docId, int first, int last, int zq) { g_focDoc = docId; g_focFirst = first; g_focLast = last; g_focZq = zq; }   // call with the cache locked
 static int CacheDist(const TileKey& k) {
   if (k.doc != g_focDoc) return 1 << 20;
+  if (k.kind == 0 && k.zq != g_focZq) return 1 << 19;             // tiles of another zoom level (left over from a pinch) are the first to go
   if (k.page < g_focFirst) return g_focFirst - k.page;
   if (k.page > g_focLast) return k.page - g_focLast;
   return 0;

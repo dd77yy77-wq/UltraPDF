@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 19
-#define APP_VERSION_NAME L"1.9"
-#define APP_VERSION_NAME_A "1.9"
+#define APP_VERSION_CODE 20
+#define APP_VERSION_NAME L"1.10"
+#define APP_VERSION_NAME_A "1.10"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -243,7 +243,7 @@ void WorkerStop();
 void WorkerOpen(int tabId, const ws& path, const std::string& password);
 void CacheLock();
 void CacheUnlock();
-void CacheFocus(int docId, int first, int last);   // call between CacheLock/Unlock
+void CacheFocus(int docId, int first, int last, int zq);   // call between CacheLock/Unlock
 bool CacheGetLocked(const TileKey& k, Tile* t);    // call between CacheLock/Unlock; HBITMAP valid until unlock
 void CachePurgeDoc(int docId);
 void ReqBegin(Consumer c);                          // start collecting the requests of one paint
