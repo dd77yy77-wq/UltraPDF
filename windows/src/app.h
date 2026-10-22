@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 10
-#define APP_VERSION_NAME L"1.0"
-#define APP_VERSION_NAME_A "1.0"
+#define APP_VERSION_CODE 11
+#define APP_VERSION_NAME L"1.1"
+#define APP_VERSION_NAME_A "1.1"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -250,6 +250,7 @@ void SearchSnapshot(int tabId, std::vector<SearchHit>* out, bool* done, int* sca
 #define WM_APP_UPDATE (WM_APP + 4)
 #define WM_APP_PRINTED (WM_APP + 5)
 #define WM_APP_TESTCMD (WM_APP + 6)
+#define WM_APP_VSYNC (WM_APP + 7)
 
 // ------------------------------------------------------------------ UI
 struct Sel {

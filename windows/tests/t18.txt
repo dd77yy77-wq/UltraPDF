@@ -1,0 +1,13 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 2500
+wheel -120 0
+wheel -120 0
+wheel -120 0
+wait 1500
+info Z:\tmp\t\18a.txt
+key 34
+wait 1500
+info Z:\tmp\t\18b.txt
+shot Z:\tmp\t\18.bmp
+quit

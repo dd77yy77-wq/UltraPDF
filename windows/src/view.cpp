@@ -1,3 +1,5 @@
+#include <dwmapi.h>
+#include <atomic>
 // The document view: layout, scrolling, zoom, tiles, selection, links, search highlights
 #include "app.h"
 
@@ -7,7 +9,27 @@ static HBITMAP g_back = nullptr;
 static HDC g_backDC = nullptr;
 static int g_backW = 0, g_backH = 0;
 static uint64_t g_lastTick = 0;
-static bool g_anim = false;
+static std::atomic<bool> g_anim{false};
+static std::atomic<bool> g_vsPending{false};
+static HANDLE g_vsEvent = nullptr;
+static uint64_t g_lastQpc = 0;
+static double g_lastQpcF = 0;
+static double QpcMs() { static LARGE_INTEGER f = [] { LARGE_INTEGER x; QueryPerformanceFrequency(&x); return x; }(); LARGE_INTEGER c; QueryPerformanceCounter(&c); return (double)c.QuadPart * 1000.0 / (double)f.QuadPart; }
+
+// Animation tick source: a thread waits for the DWM composition (vblank) and posts a message, so the frame is
+// drawn right after the compositor took the previous one (no tearing, even frame pacing).
+static DWORD WINAPI VsyncThread(LPVOID) {
+  for (;;) {
+    WaitForSingleObject(g_vsEvent, INFINITE);
+    while (g_anim) {
+      double t0 = QpcMs();
+      DwmFlush();
+      if (QpcMs() - t0 < 4.0) Sleep(12);
+      if (g_hw && !g_vsPending.exchange(true)) PostMessageW(g_hw, WM_APP_VSYNC, 0, 0);
+    }
+  }
+  return 0;
+}
 extern int g_ticks; extern int g_timerRet;
 static uint64_t g_zoomBusy = 0;
 
@@ -191,9 +213,15 @@ void ViewInvalidate() { if (g_hw) InvalidateRect(g_hw, nullptr, FALSE); }
 
 static void StartAnim() {
   if (!g_anim) {
+    if (!g_vsEvent) {
+      g_vsEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+      CloseHandle(CreateThread(nullptr, 0, VsyncThread, nullptr, 0, nullptr));
+    }
+    g_lastQpc = (uint64_t)QpcMs();
+    g_lastQpcF = QpcMs();
     g_anim = true;
-    g_lastTick = NowMs();
-    g_timerRet = (int)SetTimer(g_hw, TMR_ANIM, 15, nullptr);
+    g_timerRet = 1;
+    SetEvent(g_vsEvent);
   }
 }
 
@@ -967,20 +995,25 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       else ViewScrollBy(0, (int)amt, true);
       return 0;
     }
+    case WM_APP_VSYNC: {
+      g_vsPending = false;
+      if (!g_anim) return 0;
+      g_ticks++;
+      Tab* t = CurTab();
+      double now = QpcMs();
+      double dt = now - g_lastQpcF;
+      g_lastQpcF = now;
+      if (!t || !t->doc) { g_anim = false; return 0; }
+      double k = 1.0 - exp(-min(max(dt, 1.0), 100.0) / 70.0);
+      double dy = t->ty - t->sy, dx = t->tx - t->sx;
+      if (fabs(dy) < 0.6 && fabs(dx) < 0.6) { t->sy = t->ty; t->sx = t->tx; g_anim = false; }
+      else { t->sy += dy * k; t->sx += dx * k; }
+      AfterScrollChange(t);
+      UpdateWindow(hw);
+      return 0;
+    }
     case WM_TIMER: {
-      if (wp == TMR_ANIM) {
-        g_ticks++;
-        Tab* t = CurTab();
-        uint64_t now = NowMs();
-        double dt = (double)(now - g_lastTick);
-        g_lastTick = now;
-        if (!t || !t->doc) { KillTimer(hw, TMR_ANIM); g_anim = false; return 0; }
-        double k = 1.0 - exp(-max(dt, 8.0) / 70.0);
-        double dy = t->ty - t->sy, dx = t->tx - t->sx;
-        if (fabs(dy) < 0.6 && fabs(dx) < 0.6) { t->sy = t->ty; t->sx = t->tx; KillTimer(hw, TMR_ANIM); g_anim = false; }
-        else { t->sy += dy * k; t->sx += dx * k; }
-        AfterScrollChange(t);
-        UpdateWindow(hw);
+      if (false) {
       } else if (wp == TMR_ZOOM) {
         KillTimer(hw, TMR_ZOOM);
         ViewInvalidate();
