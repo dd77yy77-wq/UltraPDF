@@ -32,9 +32,9 @@ static void Paint(HWND hw) {
   DeleteObject(lb);
   int icon = Sp(112);
   DrawAppIcon(dc, (g_w - icon) / 2, Sp(30), icon);
-  RECT r = {0, Sp(30) + icon + Sp(10), g_w, Sp(30) + icon + Sp(52)};
-  DrawTextW2(dc, L"UltraPDF", r, dark ? RGB(240, 240, 240) : RGB(28, 28, 30), UiFont(Sp(28), true), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-  r = {0, Sp(30) + icon + Sp(54), g_w, Sp(30) + icon + Sp(78)};
+  RECT r = {0, Sp(30) + icon + Sp(8), g_w, Sp(30) + icon + Sp(56)};
+  DrawTextW2(dc, L"UltraPDF", r, BrandRed(dark), UiFont(Sp(33), true), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+  r = {0, Sp(30) + icon + Sp(58), g_w, Sp(30) + icon + Sp(82)};
   DrawTextW2(dc, L"Загрузка…", r, dark ? RGB(160, 162, 168) : RGB(110, 113, 120), UiFont(Sp(14)), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
   BitBlt(dc0, 0, 0, g_w, g_h, dc, 0, 0, SRCCOPY);
   SelectObject(dc, old);
@@ -71,7 +71,7 @@ void SplashShow(HINSTANCE inst) {
   ReleaseDC(nullptr, sdc);
   g_sc = dpi > 48 ? dpi / 96.0 : 1.0;
   g_w = Sp(340);
-  g_h = Sp(290);
+  g_h = Sp(296);
   WNDCLASSEXW wc = {sizeof(wc)};
   wc.lpfnWndProc = SplashProc;
   wc.hInstance = inst;

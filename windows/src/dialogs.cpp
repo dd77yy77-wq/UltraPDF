@@ -41,7 +41,7 @@ static LRESULT CALLBACK DlgProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         int cx = rc.right / 2;
         DrawAppIcon(dc, cx - S(48), S(22), S(96));
         RECT r = {0, S(128), rc.right, S(164)};
-        DrawTextW2(dc, L"UltraPDF", r, T.text, UiFont(S(24), true), DT_CENTER | DT_SINGLELINE);
+        DrawTextW2(dc, L"UltraPDF", r, BrandRed(T.dark), UiFont(S(28), true), DT_CENTER | DT_SINGLELINE);
         r = {0, S(166), rc.right, S(190)};
         DrawTextW2(dc, FmtT(L"Версия для Windows %s (сборка %d)", APP_VERSION_NAME, APP_VERSION_CODE), r, T.dim, UiFont(S(13)), DT_CENTER | DT_SINGLELINE);
         r = {S(20), S(194), rc.right - S(20), S(236)};

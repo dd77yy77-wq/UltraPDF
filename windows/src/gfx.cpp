@@ -32,6 +32,8 @@ void GfxShutdown() {
 
 static Color C(COLORREF c, int a = 255) { return Color((BYTE)a, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
+COLORREF BrandRed(bool dark) { return dark ? RGB(239, 83, 80) : RGB(198, 40, 40); }
+
 void DrawAppIcon(HDC dc, int x, int y, int size) {
   if (!g_appIcon) return;
   Graphics g(dc);
