@@ -187,6 +187,16 @@ bool CacheGetLocked(const TileKey& k, Tile* t) {
   *t = it->second.t;
   return true;
 }
+// eviction keeps what is near the view: tiles of other documents go first, then tiles of the pages farthest from the visible range;
+// pages on screen are only evicted when nothing else is left (plain LRU made previews of far pages push out the visible tiles)
+static int g_focDoc = -1, g_focFirst = 0, g_focLast = 0;
+void CacheFocus(int docId, int first, int last) { g_focDoc = docId; g_focFirst = first; g_focLast = last; }   // call with the cache locked
+static int CacheDist(const TileKey& k) {
+  if (k.doc != g_focDoc) return 1 << 20;
+  if (k.page < g_focFirst) return g_focFirst - k.page;
+  if (k.page > g_focLast) return k.page - g_focLast;
+  return 0;
+}
 static void CachePut(const TileKey& k, const Tile& t) {
   std::lock_guard<std::mutex> lk(g_cm);
   auto it = g_cache.find(k);
@@ -204,12 +214,20 @@ static void CachePut(const TileKey& k, const Tile& t) {
   g_cacheBytes += e.bytes;
   g_cache[k] = e;
   while (g_cacheBytes > kCacheMax && g_lru.size() > 8) {
-    TileKey old = g_lru.back();
-    auto f = g_cache.find(old);
+    auto victim = g_lru.end();
+    int bestD = -1;
+    for (auto li = g_lru.end(); li != g_lru.begin();) {         // from the least recently used
+      --li;
+      if (*li == k) continue;                                    // never the tile that was just rendered
+      int d = CacheDist(*li);
+      if (d > bestD) { bestD = d; victim = li; }
+    }
+    if (victim == g_lru.end()) break;
+    auto f = g_cache.find(*victim);
     g_cacheBytes -= f->second.bytes;
     DeleteObject(f->second.t.bmp);
     g_cache.erase(f);
-    g_lru.pop_back();
+    g_lru.erase(victim);
   }
 }
 void CachePurgeDoc(int docId) {
@@ -279,7 +297,8 @@ static bool g_stop = false;
 static std::thread g_thread;
 static std::atomic<bool> g_refreshPosted{false};
 
-double g_rndMs = 0; int g_rndN = 0;
+double g_rndMs = 0; int g_rndN = 0; int g_rndFail = 0, g_rndStale = 0;
+size_t CacheStatBytes(size_t* n) { std::lock_guard<std::mutex> lk(g_cm); *n = g_cache.size(); return g_cacheBytes; }
 static void RenderJob(const Job& j) {
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
   uint64_t rt0 = GetTickCount64();
@@ -288,7 +307,7 @@ static void RenderJob(const Job& j) {
   if (!pg) return;
   void* bits = nullptr;
   HBITMAP hb = MakeDib(j.tw, j.th, &bits);
-  if (!hb) return;
+  if (!hb) { g_rndFail++; return; }
   FPDF_BITMAP bm = PA.FPDFBitmap_CreateEx(j.tw, j.th, 3 /*BGRx*/, bits, j.tw * 4);
   PA.FPDFBitmap_FillRect(bm, 0, 0, j.tw, j.th, 0xFFFFFFFF);
   int flags = FPDF_ANNOT | (j.key.mode == 0 && j.key.kind == 0 ? FPDF_LCD_TEXT : 0);

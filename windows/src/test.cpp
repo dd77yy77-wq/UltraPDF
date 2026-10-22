@@ -2,6 +2,7 @@
 #include "app.h"
 #include <fstream>
 #include <sstream>
+size_t CacheStatBytes(size_t* n);
 
 static void OnUI(std::function<void()> f) { SendMessageW(A_.main, WM_APP_TESTCMD, 0, (LPARAM)&f); }
 
@@ -143,6 +144,7 @@ static void ScriptThread(ws script) {
           auto pd = GetPageDataNow(t->doc, 0, false);
           extern double g_paintAvg; extern int g_ticks; extern int g_timerRet; extern int g_paintTotal;
         extern double g_rndMs; extern int g_rndN; o << "paints=" << g_paintTotal << "\nrenderN=" << g_rndN << " renderAvgMs=" << (g_rndN ? g_rndMs / g_rndN : 0) << "\n";
+        extern int g_rndFail; size_t cn = 0; size_t cb = CacheStatBytes(&cn); o << "cacheMB=" << cb / 1048576 << " entries=" << cn << " rndFail=" << g_rndFail << "\n";
         o << "timerRet=" << g_timerRet << " err=" << GetLastError() << "\n";
         o << "ticks=" << g_ticks << "\n";
         o << "paintAvgMs=" << g_paintAvg << "\n";
@@ -155,6 +157,62 @@ static void ScriptThread(ws script) {
             << "\nviewW=" << t->viewW << "\nviewH=" << t->viewH << "\ndocW=" << t->docW << "\npw0=" << (t->pwpx.empty() ? 0 : t->pwpx[0]) << "\nsx=" << t->sx << "\nscale=" << t->scale << "\nty=" << t->ty << "\nsy=" << t->sy << "\ndocH=" << t->docH << "\nscanned=" << t->searchScanned << "\ndone=" << t->searchDone << "\nquery=" << WToUtf8(t->query) << "\nhits=" << t->hits.size() << "\ncurHit=" << t->curHit << "\nsel=" << ViewHasSel()
             << "\noutline=" << t->doc->outline.size() << "\nbookmarks=" << t->saved.bookmarks.size() << "\nmode=" << G.readMode << "\ntabs=" << A_.tabs.size() << "\n";
         }
+      });
+    } else if (c == "wheelrep") {
+      int n = 0, d = 0, ms = 16;
+      sscanf(rest.c_str(), "%d %d %d", &n, &d, &ms);
+      for (int i = 0; i < n; i++) {
+        OnUI([=]() {
+          RECT rc;
+          GetClientRect(A_.view, &rc);
+          POINT pt = {rc.right / 2, rc.bottom / 2};
+          ClientToScreen(A_.view, &pt);
+          SendMessageW(A_.view, WM_MOUSEWHEEL, MAKEWPARAM(0, (short)d), MAKELPARAM(pt.x, pt.y));
+        });
+        Sleep(ms);
+      }
+    } else if (c == "hover") {
+      int x, y;
+      sscanf(rest.c_str(), "%d %d", &x, &y);
+      OnUI([=]() {
+        POINT pt = {x, y};
+        ClientToScreen(A_.main, &pt);
+        SetCursorPos(pt.x, pt.y);
+        SendMessageW(A_.main, WM_MOUSEMOVE, 0, MAKELPARAM(x, y));
+      });
+      for (int i = 0; i < 6; i++) { Sleep(150); OnUI([=]() { POINT pt = {x + (i & 1), y}; ClientToScreen(A_.main, &pt); SetCursorPos(pt.x, pt.y); SendMessageW(A_.main, WM_MOUSEMOVE, 0, MAKELPARAM(x + (i & 1), y)); }); }
+    } else if (c == "iconsheet") {
+      std::string f = rest;
+      OnUI([f]() {
+        const int N = IC_TRASH + 1, sz = 40;
+        HDC sdc = GetDC(nullptr);
+        HDC mdc = CreateCompatibleDC(sdc);
+        HBITMAP bm = CreateCompatibleBitmap(sdc, N * sz, sz * 2);
+        SelectObject(mdc, bm);
+        RECT a = {0, 0, N * sz, sz}, b2 = {0, sz, N * sz, sz * 2};
+        HBRUSH w = CreateSolidBrush(RGB(255, 255, 255)), d = CreateSolidBrush(RGB(40, 40, 44));
+        FillRect(mdc, &a, w); FillRect(mdc, &b2, d);
+        HDC idc = CreateCompatibleDC(sdc);
+        for (int i = 0; i < N; i++)
+          for (int row = 0; row < 2; row++) {
+            HBITMAP ib = MakeMenuIcon((Icon)i, sz - 8, row ? RGB(232, 232, 232) : RGB(52, 52, 56));
+            if (!ib) continue;
+            HGDIOBJ old = SelectObject(idc, ib);
+            BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+            AlphaBlend(mdc, i * sz + 4, row * sz + 4, sz - 8, sz - 8, idc, 0, 0, sz - 8, sz - 8, bf);
+            SelectObject(idc, old);
+            DeleteObject(ib);
+          }
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth = N * sz; bi.bmiHeader.biHeight = -sz * 2; bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 24;
+        int stride = (N * sz * 3 + 3) & ~3;
+        std::vector<BYTE> px((size_t)stride * sz * 2);
+        GetDIBits(mdc, bm, 0, sz * 2, px.data(), &bi, DIB_RGB_COLORS);
+        BITMAPFILEHEADER fh = {0x4D42, (DWORD)(sizeof(fh) + sizeof(BITMAPINFOHEADER) + px.size()), 0, 0, sizeof(fh) + sizeof(BITMAPINFOHEADER)};
+        std::ofstream o(f, std::ios::binary);
+        o.write((char*)&fh, sizeof(fh)); o.write((char*)&bi.bmiHeader, sizeof(BITMAPINFOHEADER)); o.write((char*)px.data(), px.size());
+        DeleteObject(w); DeleteObject(d); DeleteDC(idc); DeleteObject(bm); DeleteDC(mdc); ReleaseDC(nullptr, sdc);
       });
     } else if (c == "dumpclip") {
       std::string f = rest;

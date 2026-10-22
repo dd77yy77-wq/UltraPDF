@@ -681,7 +681,39 @@ static bool PickFiles(std::vector<ws>* out) {
   return true;
 }
 
-static void ShowMainMenu(int x, int y) {
+// menu helpers: icons next to items, and "click the button again to close the menu"
+static std::vector<HBITMAP> g_menuBmps;
+static RECT g_swRect = {0, 0, 0, 0};          // button (screen coordinates) whose menu was closed by a click on that very button
+static uint64_t g_swTick = 0;
+static void MenuIcon(HMENU m, UINT idOrPos, bool byPos, Icon ic) {
+  UINT st = GetMenuState(m, idOrPos, byPos ? MF_BYPOSITION : MF_BYCOMMAND);
+  bool gray = st != (UINT)-1 && (st & (MF_GRAYED | MF_DISABLED));
+  COLORREF col = gray ? (T.dark ? RGB(110, 110, 110) : RGB(165, 165, 165)) : (T.dark ? RGB(232, 232, 232) : RGB(52, 52, 56));
+  HBITMAP hb = MakeMenuIcon(ic, S(16), col);
+  if (!hb) return;
+  g_menuBmps.push_back(hb);
+  MENUITEMINFOW mi = {sizeof(mi)};
+  mi.fMask = MIIM_BITMAP;
+  mi.hbmpItem = hb;
+  SetMenuItemInfoW(m, idOrPos, byPos ? TRUE : FALSE, &mi);
+}
+static int TrackMenuToggle(HMENU m, int x, int y, RECT btnClient) {
+  POINT a = {btnClient.left, btnClient.top}, b = {btnClient.right, btnClient.bottom};
+  ClientToScreen(A_.main, &a); ClientToScreen(A_.main, &b);
+  RECT bs = {a.x, a.y, b.x, b.y};
+  TPMPARAMS tp = {sizeof(tp), bs};
+  int cmd = TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, A_.main, &tp);
+  POINT cp;
+  GetCursorPos(&cp);
+  if (PtInRect(&bs, cp)) { g_swRect = bs; g_swTick = GetTickCount64(); } else g_swTick = 0;
+  return cmd;
+}
+static void FreeMenuIcons() {
+  for (HBITMAP h : g_menuBmps) DeleteObject(h);
+  g_menuBmps.clear();
+}
+
+static void ShowMainMenu(int x, int y, RECT btn) {
   Tab* t = CurTab();
   bool doc = t && t->doc;
   HMENU m = CreatePopupMenu();
@@ -702,6 +734,7 @@ static void ShowMainMenu(int x, int y) {
   AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SHOWFOLDER, L"Показать в папке");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING | (G.pro ? MF_CHECKED : 0), ID_PRO, L"Pro-режим");
+  HMENU ap = nullptr;
   if (G.pro) {
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SIDE_BOOKS, L"Закладки");
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SIDE_OUTLINE, L"Оглавление");
@@ -710,7 +743,7 @@ static void ShowMainMenu(int x, int y) {
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_PRINT, L"Печать…\tCtrl+P");
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_FULLSCREEN, L"Во весь экран\tF11");
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_PRESENT, L"Презентация\tF5");
-    HMENU ap = CreatePopupMenu();
+    ap = CreatePopupMenu();
     AppendMenuW(ap, MF_STRING | (G.readMode == 0 ? MF_CHECKED : 0), ID_MODE_DAY, L"Страницы: день");
     AppendMenuW(ap, MF_STRING | (G.readMode == 1 ? MF_CHECKED : 0), ID_MODE_SEPIA, L"Страницы: сепия");
     AppendMenuW(ap, MF_STRING | (G.readMode == 2 ? MF_CHECKED : 0), ID_MODE_NIGHT, L"Страницы: ночь");
@@ -728,19 +761,48 @@ static void ShowMainMenu(int x, int y) {
   AppendMenuW(m, MF_STRING, ID_ABOUT, L"О программе");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING, ID_EXIT, L"Выход");
-  int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, A_.main, nullptr);
+  MenuIcon(m, ID_OPEN, false, IC_OPEN);
+  MenuIcon(m, 1, true, IC_HIST);
+  MenuIcon(hist, ID_CLEAR_HISTORY, false, IC_TRASH);
+  MenuIcon(m, ID_SAVEAS, false, IC_SAVE);
+  MenuIcon(m, ID_SHOWFOLDER, false, IC_SHOW);
+  MenuIcon(m, ID_PRO, false, IC_STAR);
+  if (G.pro) {
+    MenuIcon(m, ID_SIDE_BOOKS, false, IC_BOOK);
+    MenuIcon(m, ID_SIDE_OUTLINE, false, IC_LIST);
+    MenuIcon(m, ID_ROT_CW, false, IC_ROT);
+    MenuIcon(m, ID_ROT_CCW, false, IC_ROTL);
+    MenuIcon(m, ID_PRINT, false, IC_PRINT);
+    MenuIcon(m, ID_FULLSCREEN, false, IC_FULL);
+    MenuIcon(m, ID_PRESENT, false, IC_PRES);
+    MenuIcon(ap, ID_MODE_DAY, false, IC_SUN);
+    MenuIcon(ap, ID_MODE_SEPIA, false, IC_PAGE);
+    MenuIcon(ap, ID_MODE_NIGHT, false, IC_NIGHT);
+    MenuIcon(ap, ID_THEME_SYS, false, IC_THEME);
+    MenuIcon(ap, ID_THEME_LIGHT, false, IC_SUN);
+    MenuIcon(ap, ID_THEME_DARK, false, IC_NIGHT);
+    for (int i = 0; i < GetMenuItemCount(m); i++) if (GetSubMenu(m, i) == ap) MenuIcon(m, (UINT)i, true, IC_THEME);
+  } else {
+    MenuIcon(m, ID_NIGHT_TOGGLE, false, IC_NIGHT);
+  }
+  MenuIcon(m, ID_ASSOC, false, IC_APPS);
+  MenuIcon(m, ID_UPDATE, false, IC_UPD);
+  MenuIcon(m, ID_ABOUT, false, IC_INFO);
+  MenuIcon(m, ID_EXIT, false, IC_EXIT);
+  int cmd = TrackMenuToggle(m, x, y, btn);
   DestroyMenu(m);
+  FreeMenuIcons();
   if (cmd) DoCmd(cmd);
 }
 
-static void ShowZoomMenu(int x, int y) {
+static void ShowZoomMenu(int x, int y, RECT btn) {
   HMENU m = CreatePopupMenu();
   static const int pct[] = {50, 75, 100, 125, 150, 200, 300, 400, 600, 800};
   for (int i = 0; i < 10; i++) AppendMenuW(m, MF_STRING, ID_ZOOM_PRESET + i, FmtT(L"%d%%", pct[i]).c_str());
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING, ID_FIT_W, L"По ширине");
   AppendMenuW(m, MF_STRING, ID_FIT_P, L"Страница целиком");
-  int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, A_.main, nullptr);
+  int cmd = TrackMenuToggle(m, x, y, btn);
   DestroyMenu(m);
   if (cmd) DoCmd(cmd);
 }
@@ -763,7 +825,7 @@ void DoCmd(int id) {
       RECT r = g_btns.empty() ? RECT{0, 0, 0, 0} : g_btns[0].r;
       POINT pt = {r.left, r.bottom};
       ClientToScreen(A_.main, &pt);
-      ShowMainMenu(pt.x, pt.y);
+      ShowMainMenu(pt.x, pt.y, r);
       break;
     }
     case ID_OPEN: case ID_NEWTAB_DLG: {
@@ -1005,6 +1067,27 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       SetBkColor(dc, T.field);
       return (LRESULT)g_editBrush;
     }
+    case WM_NOTIFY: {
+      NMHDR* nh = (NMHDR*)lp;
+      if (nh && nh->hwndFrom == g_tip && nh->code == TTN_SHOW) {
+        // keep the tip clear of the mouse pointer: put it below the pointer image (and never above the button)
+        POINT cp;
+        GetCursorPos(&cp);
+        RECT tr;
+        GetWindowRect(g_tip, &tr);
+        int tw = tr.right - tr.left, th = tr.bottom - tr.top;
+        int x = cp.x - S(8);
+        int y = cp.y + max(S(28), GetSystemMetrics(SM_CYCURSOR) - S(2));
+        MONITORINFO mi = {sizeof(mi)};
+        GetMonitorInfoW(MonitorFromPoint(cp, MONITOR_DEFAULTTONEAREST), &mi);
+        if (x + tw > mi.rcWork.right) x = mi.rcWork.right - tw;
+        if (x < mi.rcWork.left) x = mi.rcWork.left;
+        if (y + th > mi.rcWork.bottom) y = cp.y - th - S(8);
+        SetWindowPos(g_tip, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+        return TRUE;
+      }
+      break;
+    }
     case WM_COMMAND:
       if ((HWND)lp == A_.findEdit && HIWORD(wp) == EN_CHANGE) {
         SetTimer(hw, TMR_FIND, 280, nullptr);
@@ -1021,7 +1104,7 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       }
       return 0;
     case WM_APP_OPENED: ApplyOpened((OpenResult*)lp); return 0;
-    case WM_APP_REFRESH: WorkerAckRefresh(); ViewInvalidate(); SideInvalidate(); return 0;
+    case WM_APP_REFRESH: WorkerAckRefresh(); ViewInvalidateTiles(); SideInvalidate(); return 0;
     case WM_APP_SEARCH: {
       Tab* t = TabById((int)wp);
       if (!t) return 0;
@@ -1126,6 +1209,12 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_hdrR.bottom > g_hdrR.top && PtInRect(&g_segR[i], pt)) { G.sideTab = i; SideSync(); InvalidateRect(hw, nullptr, FALSE); return 0; }
       int hb = HitBtn(x, y);
       if (hb == -2) { G.matchCase = !G.matchCase; StartSearchFromEdit(); InvalidateRect(hw, nullptr, FALSE); return 0; }
+      if (hb >= 0 && g_swTick && GetTickCount64() - g_swTick < 450) {
+        POINT sp = {x, y};
+        ClientToScreen(hw, &sp);
+        if (PtInRect(&g_swRect, sp)) { g_swTick = 0; return 0; }     // this click only closed the menu
+      }
+      g_swTick = 0;
       if (hb >= 0 && BtnAt(hb).enabled) { g_pressBtn = hb; SetCapture(hw); InvalidateRect(hw, nullptr, FALSE); }
       return 0;
     }
@@ -1141,7 +1230,7 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         if (b.kind == 1) {
           POINT pt = {b.r.left, b.r.bottom};
           ClientToScreen(hw, &pt);
-          ShowZoomMenu(pt.x, pt.y);
+          ShowZoomMenu(pt.x, pt.y, b.r);
         } else DoCmd(b.id);
       }
       InvalidateRect(hw, nullptr, FALSE);
@@ -1163,6 +1252,11 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETFOCUS: if (A_.view) SetFocus(A_.view); return 0;
   }
   return DefWindowProcW(hw, msg, wp, lp);
+}
+
+bool AppIsReady() {
+  for (auto& tb : A_.tabs) if (tb->loading) return false;
+  return ViewSettled();
 }
 
 // ---------------------------------------------------------------- window creation
@@ -1209,6 +1303,7 @@ bool MainCreate(HINSTANCE inst, int show, const ws& cmdline) {
   SetTimer(A_.main, TMR_SAVE, 5000, nullptr);
   if (G.maximized) ShowWindow(A_.main, SW_SHOWMAXIMIZED); else ShowWindow(A_.main, show);
   UpdateWindow(A_.main);
+  SplashRaise();
   MainLayout();
   // what to open
   std::vector<ws> files;
@@ -1272,8 +1367,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int show) {
   LoadSettings();
   GfxInit();
   A_.dpi = 96;
+  if (!testing || GetEnvironmentVariableW(L"ULTRAPDF_SPLASH", nullptr, 0) > 0) { ApplyTheme(G.themeMode); SplashShow(inst); }
   ws err;
   if (!PdfLoad(&err)) {
+    SplashClose();
     MessageBoxW(nullptr, err.c_str(), L"UltraPDF", MB_OK | MB_ICONERROR);
     return 1;
   }

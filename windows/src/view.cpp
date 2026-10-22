@@ -32,6 +32,17 @@ static DWORD WINAPI VsyncThread(LPVOID) {
 }
 extern int g_ticks; extern int g_timerRet;
 static uint64_t g_zoomBusy = 0;
+static bool g_visMiss = true;
+static int g_trMiss = 0, g_trBlank = 0, g_trQueue = 0;
+static FILE* g_trace = nullptr;
+static bool g_traceInit = false;
+static int g_paintedDoc = -1;
+bool ViewSettled() {
+  Tab* t = CurTab();
+  if (!t) return true;
+  if (!t->doc) return !t->loading;
+  return g_paintedDoc == t->doc->id && !g_visMiss;
+}
 
 enum { TMR_ANIM = 1, TMR_DRAG = 2, TMR_ZOOM = 3 };
 enum Drag { D_NONE, D_PAN, D_SEL, D_PENDLINK };
@@ -189,27 +200,41 @@ int ViewCurPage() {
 void ViewSync() {
   Tab* t = CurTab();
   if (!g_hw) return;
+  // the scroll bars are only touched when something changed: every call repaints the non-client area synchronously, which costs frame time
+  static int lMax = -2, lPage = -2, lPos = -2, lHMax = -2, lHPage = -2, lHPos = -2, lHShow = -1, lMode = -1;
   SCROLLINFO si = {};
   si.cbSize = sizeof(si);
   si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
   if (t && t->doc && t->layoutOk && !A_.presentation) {
-    si.nMin = 0; si.nMax = max(t->docH - 1, 0); si.nPage = t->viewH; si.nPos = (int)lround(t->sy);
-    SetScrollInfo(g_hw, SB_VERT, &si, TRUE);
-    bool needH = t->docW > t->viewW;
-    ShowScrollBar(g_hw, SB_HORZ, needH);
-    if (needH) {
-      si.nMax = t->docW - 1; si.nPage = t->viewW; si.nPos = (int)lround(t->sx);
-      SetScrollInfo(g_hw, SB_HORZ, &si, TRUE);
+    int nMax = max(t->docH - 1, 0), nPage = t->viewH, nPos = (int)lround(t->sy);
+    if (lMode != 1 || nMax != lMax || nPage != lPage || nPos != lPos) {
+      si.nMin = 0; si.nMax = nMax; si.nPage = nPage; si.nPos = nPos;
+      SetScrollInfo(g_hw, SB_VERT, &si, TRUE);
+      lMax = nMax; lPage = nPage; lPos = nPos;
     }
+    bool needH = t->docW > t->viewW;
+    if (lMode != 1 || (int)needH != lHShow) { ShowScrollBar(g_hw, SB_HORZ, needH); lHShow = needH; }
+    if (needH) {
+      int hMax = t->docW - 1, hPage = t->viewW, hPos = (int)lround(t->sx);
+      if (hMax != lHMax || hPage != lHPage || hPos != lHPos) {
+        si.nMin = 0; si.nMax = hMax; si.nPage = hPage; si.nPos = hPos;
+        SetScrollInfo(g_hw, SB_HORZ, &si, TRUE);
+        lHMax = hMax; lHPage = hPage; lHPos = hPos;
+      }
+    }
+    lMode = 1;
   } else {
     si.nMin = 0; si.nMax = 0; si.nPage = 1; si.nPos = 0;
     SetScrollInfo(g_hw, SB_VERT, &si, TRUE);
     ShowScrollBar(g_hw, SB_HORZ, FALSE);
     ShowScrollBar(g_hw, SB_VERT, !A_.presentation);
+    lMode = 0; lMax = lPage = lPos = lHMax = lHPage = lHPos = -2; lHShow = -1;
   }
 }
 
 void ViewInvalidate() { if (g_hw) InvalidateRect(g_hw, nullptr, FALSE); }
+// a tile arrived: while the scroll animation runs the next vsync frame draws it anyway, an extra paint at a random moment only costs time
+void ViewInvalidateTiles() { if (g_anim) return; ViewInvalidate(); }
 
 static void StartAnim() {
   if (!g_anim) {
@@ -657,6 +682,9 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
   int zq = (int)lround(t->scale * 10000);
   ReqBegin(CONS_VIEW);
   CacheLock();
+  bool anyMiss = false;
+  CacheFocus(docId, first, PageAtDocY(t, t->sy + vh));
+  g_trMiss = 0; g_trBlank = 0;
   int last = first;
   for (int i = first; i < n; i++) {
     int py = t->ytop[i] - (int)lround(t->sy);
@@ -695,6 +723,9 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
         } else {
           if (!zooming) ReqTile(CONS_VIEW, t->doc, k, pw, ph, ox, oy, w, h, 1);
           needPv = true;
+          anyMiss = true;
+          g_trMiss++;
+          if (!havePv) g_trBlank++;
           if (havePv) {
             HGDIOBJ old = SelectObject(mdc, pv.bmp);
             int sx0 = (int)((double)ox * pv.w / pw), sy0 = (int)((double)oy * pv.h / ph);
@@ -706,12 +737,12 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
       }
     }
     if (needPv && !havePv && !zooming) {
-      double pvs = min(1.0, 760.0 / max(pw, 1));
-      pvs = min(pvs, 1100.0 / max(ph, 1));
+      double pvs = min(1.0, 720.0 / max(pw, 1));
+      pvs = min(pvs, 1000.0 / max(ph, 1));
       int vw2 = max(8, (int)(pw * pvs)), vh2 = max(8, (int)(ph * pvs));
       if (!(single && pw <= 800)) ReqTile(CONS_VIEW, t->doc, pk, vw2, vh2, 0, 0, vw2, vh2, 0);
     }
-    if (G.pro && !zooming && !GetPageDataNow(t->doc, i, false)) ReqPageData(CONS_VIEW, t->doc, i, 6);
+    if (G.pro && !zooming && !GetPageDataNow(t->doc, i, false)) ReqPageData(CONS_VIEW, t->doc, i, 200);
   }
   // prefetch: whole small pages (by memory budget) and tiles of big pages around the view, nearest first, ahead first
   if (!zooming) {
@@ -738,9 +769,10 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
         TileKey pk;
         pk.doc = docId; pk.page = i; pk.rot = rotq; pk.mode = G.readMode; pk.kind = 1; pk.zq = 0;
         Tile pv;
-        if (!(single && pw <= 800) && !CacheGetLocked(pk, &pv)) {
-          double pvs = min(1.0, 760.0 / max(pw, 1));
-          pvs = min(pvs, 1100.0 / max(ph, 1));
+        int pdist = i > last ? i - last : first - i;
+        if (pdist <= (ahead ? 10 : 4) && !(single && pw <= 800) && !CacheGetLocked(pk, &pv)) {
+          double pvs = min(1.0, 720.0 / max(pw, 1));
+          pvs = min(pvs, 1000.0 / max(ph, 1));
           int vw2 = max(8, (int)(pw * pvs)), vh2 = max(8, (int)(ph * pvs));
           ReqTile(CONS_VIEW, t->doc, pk, vw2, vh2, 0, 0, vw2, vh2, 2);
           jobs++;
@@ -783,6 +815,8 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
     }
   }
   CacheUnlock();
+  g_visMiss = anyMiss;
+  g_paintedDoc = t->doc->id;
   ReqEnd(CONS_VIEW);
   DeleteDC(mdc);
   DeleteObject(baseBr);
@@ -875,6 +909,8 @@ static void OnPaint(HWND hw) {
   g_paintAvg = (g_paintAvg * g_paintN + (double)(GetTickCount64() - t0)) / (g_paintN + 1);
   if (g_paintN < 50) g_paintN++;
   g_paintTotal++;
+  if (!g_traceInit) { g_traceInit = true; wchar_t e[512]; if (GetEnvironmentVariableW(L"ULTRAPDF_TRACE", e, 512) > 0) g_trace = _wfopen(e, L"w"); }
+  if (g_trace) { Tab* tt = CurTab(); fprintf(g_trace, "%llu sy=%.1f miss=%d blank=%d ms=%llu\n", (unsigned long long)GetTickCount64(), tt ? tt->sy : 0.0, g_trMiss, g_trBlank, (unsigned long long)(GetTickCount64() - t0)); fflush(g_trace); }
 }
 
 // ---------------------------------------------------------------- mouse and keyboard

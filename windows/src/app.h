@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 13
-#define APP_VERSION_NAME L"1.3"
-#define APP_VERSION_NAME_A "1.3"
+#define APP_VERSION_CODE 14
+#define APP_VERSION_NAME L"1.4"
+#define APP_VERSION_NAME_A "1.4"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -144,8 +144,10 @@ void GfxInit();
 void GfxShutdown();
 enum Icon {
   IC_MENU, IC_SIDEBAR, IC_OPEN, IC_UP, IC_DOWN, IC_ZOUT, IC_ZIN, IC_FITW, IC_FITP, IC_ROT, IC_SEARCH,
-  IC_NIGHT, IC_BOOK, IC_BOOKON, IC_PRINT, IC_FULL, IC_CLOSE, IC_PLUS, IC_CASE, IC_CHEV, IC_CHEVD, IC_PRES
+  IC_NIGHT, IC_BOOK, IC_BOOKON, IC_PRINT, IC_FULL, IC_CLOSE, IC_PLUS, IC_CASE, IC_CHEV, IC_CHEVD, IC_PRES,
+  IC_HIST, IC_SAVE, IC_SHOW, IC_STAR, IC_LIST, IC_ROTL, IC_THEME, IC_SUN, IC_PAGE, IC_APPS, IC_UPD, IC_INFO, IC_EXIT, IC_TRASH
 };
+HBITMAP MakeMenuIcon(Icon ic, int size, COLORREF col);    // 32-bit premultiplied ARGB bitmap for a menu item (caller deletes)
 void DrawIcon(HDC dc, Icon ic, FRect r, COLORREF col, float stroke = 1.6f);
 void FillRoundRect(HDC dc, RECT r, int rad, COLORREF col, int alpha = 255);
 void FillRectA(HDC dc, RECT r, COLORREF col, int alpha);    // alpha blended fill
@@ -154,6 +156,13 @@ void DrawLineA(HDC dc, float x1, float y1, float x2, float y2, COLORREF col, flo
 HFONT UiFont(int px, bool bold = false);
 void DrawTextW2(HDC dc, const ws& s, RECT r, COLORREF col, HFONT f, UINT fmt);
 void DrawAppIcon(HDC dc, int x, int y, int size);
+// splash.cpp
+void SplashShow(HINSTANCE inst);
+void SplashClose();
+void SplashRaise();
+bool SplashActive();
+bool AppIsReady();               // main.cpp: every tab finished loading and the visible page is drawn
+bool ViewSettled();              // view.cpp: the current document was painted and no visible tile is missing
 
 // ------------------------------------------------------------------ document, cache, worker
 struct Link {
@@ -232,6 +241,7 @@ void WorkerStop();
 void WorkerOpen(int tabId, const ws& path, const std::string& password);
 void CacheLock();
 void CacheUnlock();
+void CacheFocus(int docId, int first, int last);   // call between CacheLock/Unlock
 bool CacheGetLocked(const TileKey& k, Tile* t);    // call between CacheLock/Unlock; HBITMAP valid until unlock
 void CachePurgeDoc(int docId);
 void ReqBegin(Consumer c);                          // start collecting the requests of one paint
@@ -342,6 +352,7 @@ void MainSetFullscreen(bool on, bool presentation);
 bool ViewRegister(HINSTANCE inst);
 HWND ViewCreate(HWND parent);
 void ViewInvalidate();
+void ViewInvalidateTiles();
 void ViewSync();                         // rebuild layout/scrollbars for the current tab
 void ViewGoPage(int page, float yPt, bool animate, bool pushBack);
 int ViewCurPage();

@@ -1,0 +1,10 @@
+# Fast scroll stress: ULTRAPDF_TRACE=<file> writes one line per paint; analyse with `python3 tests/scrolltrace.py <file>`
+size 1900 1000
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 3000
+wheelrep 150 -120 16
+wait 300
+wheelrep 40 120 16
+wait 5000
+info Z:\tmp\t\25.txt
+quit

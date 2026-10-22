@@ -102,8 +102,7 @@ void DrawLineA(HDC dc, float x1, float y1, float x2, float y2, COLORREF col, flo
   g.DrawLine(&p, x1, y1, x2, y2);
 }
 
-void DrawIcon(HDC dc, Icon ic, FRect R, COLORREF col, float sw) {
-  Graphics g(dc);
+static void DrawIconG(Graphics& g, Icon ic, FRect R, COLORREF col, float sw) {
   g.SetSmoothingMode(SmoothingModeAntiAlias);
   g.SetPixelOffsetMode(PixelOffsetModeHalf);
   float w = R.r - R.l, h = R.b - R.t;
@@ -118,6 +117,7 @@ void DrawIcon(HDC dc, Icon ic, FRect R, COLORREF col, float sw) {
   pen.SetLineJoin(LineJoinRound);
   SolidBrush br(C(col));
   auto L = [&](float a, float b, float c, float d) { g.DrawLine(&pen, P(a, b), P(c, d)); };
+  if (ic == IC_ROTL) { Matrix m(-1.0f, 0.0f, 0.0f, 1.0f, 2 * (x0 + s / 2), 0.0f); g.SetTransform(&m); ic = IC_ROT; }
   switch (ic) {
     case IC_MENU: L(3, 5, 17, 5); L(3, 10, 17, 10); L(3, 15, 17, 15); break;
     case IC_SIDEBAR: {
@@ -192,5 +192,106 @@ void DrawIcon(HDC dc, Icon ic, FRect R, COLORREF col, float sw) {
     }
     case IC_CLOSE: L(5, 5, 15, 15); L(15, 5, 5, 15); break;
     case IC_CASE: break;
+    case IC_HIST: g.DrawEllipse(&pen, x0 + 2.5f * k, y0 + 2.5f * k, 15 * k, 15 * k); L(10, 5.8f, 10, 10); L(10, 10, 13.2f, 12); break;
+    case IC_SAVE: {
+      PointF a[] = {P(3, 3), P(14, 3), P(17, 6), P(17, 17), P(3, 17)};
+      g.DrawPolygon(&pen, a, 5);
+      PointF b[] = {P(6.2f, 3), P(6.2f, 7.2f), P(12, 7.2f), P(12, 3)}; g.DrawLines(&pen, b, 4);
+      PointF c[] = {P(6, 17), P(6, 11.2f), P(14, 11.2f), P(14, 17)}; g.DrawLines(&pen, c, 4);
+      break;
+    }
+    case IC_SHOW: {
+      PointF pts[] = {P(2.5f, 4.5f), P(7.5f, 4.5f), P(9.5f, 6.5f), P(17, 6.5f), P(17, 16), P(2.5f, 16)};
+      g.DrawPolygon(&pen, pts, 6);
+      L(6.2f, 11.3f, 13, 11.3f);
+      PointF h[] = {P(10.7f, 8.9f), P(13.1f, 11.3f), P(10.7f, 13.7f)}; g.DrawLines(&pen, h, 3);
+      break;
+    }
+    case IC_STAR: {
+      PointF st[10];
+      for (int i = 0; i < 10; i++) {
+        float ang = -3.14159265f / 2 + i * 3.14159265f / 5, rr = (i % 2 == 0) ? 7.8f : 3.4f;
+        st[i] = P(10 + rr * cosf(ang), 10.6f + rr * sinf(ang));
+      }
+      g.DrawPolygon(&pen, st, 10);
+      break;
+    }
+    case IC_LIST: L(7.5f, 5, 17, 5); L(7.5f, 10, 17, 10); L(7.5f, 15, 17, 15); L(3.2f, 5, 3.3f, 5); L(3.2f, 10, 3.3f, 10); L(3.2f, 15, 3.3f, 15); break;
+    case IC_THEME: {
+      g.DrawEllipse(&pen, x0 + 2.8f * k, y0 + 2.8f * k, 14.4f * k, 14.4f * k);
+      g.FillPie(&br, x0 + 2.8f * k, y0 + 2.8f * k, 14.4f * k, 14.4f * k, 90, 180);
+      break;
+    }
+    case IC_SUN: {
+      g.DrawEllipse(&pen, x0 + 6.2f * k, y0 + 6.2f * k, 7.6f * k, 7.6f * k);
+      for (int i = 0; i < 8; i++) {
+        float a = i * 3.14159265f / 4, c = cosf(a), sn = sinf(a);
+        L(10 + 6.2f * c, 10 + 6.2f * sn, 10 + 8.6f * c, 10 + 8.6f * sn);
+      }
+      break;
+    }
+    case IC_PAGE: {
+      GraphicsPath p; RoundPath(p, x0 + 4 * k, y0 + 2.5f * k, 12 * k, 15 * k, 1.5f * k);
+      g.DrawPath(&pen, &p);
+      L(7, 7, 13, 7); L(7, 10, 13, 10); L(7, 13, 11, 13);
+      break;
+    }
+    case IC_APPS: {
+      GraphicsPath p; RoundPath(p, x0 + 2.8f * k, y0 + 2.8f * k, 14.4f * k, 14.4f * k, 3 * k);
+      g.DrawPath(&pen, &p);
+      PointF c[] = {P(6.4f, 10.2f), P(9, 12.8f), P(13.8f, 7.2f)}; g.DrawLines(&pen, c, 3);
+      break;
+    }
+    case IC_UPD: {
+      L(10, 3, 10, 12.2f);
+      PointF h[] = {P(6.3f, 8.6f), P(10, 12.4f), P(13.7f, 8.6f)}; g.DrawLines(&pen, h, 3);
+      PointF b[] = {P(3.5f, 12.5f), P(3.5f, 16.5f), P(16.5f, 16.5f), P(16.5f, 12.5f)}; g.DrawLines(&pen, b, 4);
+      break;
+    }
+    case IC_INFO: g.DrawEllipse(&pen, x0 + 2.5f * k, y0 + 2.5f * k, 15 * k, 15 * k); L(10, 9, 10, 14); L(10, 6.3f, 10.05f, 6.3f); break;
+    case IC_EXIT: {
+      PointF b[] = {P(8.5f, 3.5f), P(3.5f, 3.5f), P(3.5f, 16.5f), P(8.5f, 16.5f)}; g.DrawLines(&pen, b, 4);
+      L(8, 10, 17, 10);
+      PointF h[] = {P(13.6f, 6.6f), P(17, 10), P(13.6f, 13.4f)}; g.DrawLines(&pen, h, 3);
+      break;
+    }
+    case IC_TRASH: {
+      L(3.5f, 5.5f, 16.5f, 5.5f);
+      PointF a[] = {P(5, 5.5f), P(6, 17), P(14, 17), P(15, 5.5f)}; g.DrawLines(&pen, a, 4);
+      PointF h[] = {P(8, 5.5f), P(8, 3), P(12, 3), P(12, 5.5f)}; g.DrawLines(&pen, h, 4);
+      break;
+    }
+    default: break;
   }
+  g.ResetTransform();
+}
+
+void DrawIcon(HDC dc, Icon ic, FRect R, COLORREF col, float sw) {
+  Graphics g(dc);
+  DrawIconG(g, ic, R, col, sw);
+}
+
+HBITMAP MakeMenuIcon(Icon ic, int size, COLORREF col) {
+  Bitmap bmp(size, size, PixelFormat32bppPARGB);
+  {
+    Graphics g(&bmp);
+    g.Clear(Color(0, 0, 0, 0));
+    FRect r = {1.0f, 1.0f, (float)size - 1.0f, (float)size - 1.0f};
+    DrawIconG(g, ic, r, col, 1.5f);
+  }
+  BitmapData bd;
+  Rect rc(0, 0, size, size);
+  if (bmp.LockBits(&rc, ImageLockModeRead, PixelFormat32bppPARGB, &bd) != Ok) return nullptr;
+  BITMAPINFO bi = {};
+  bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bi.bmiHeader.biWidth = size;
+  bi.bmiHeader.biHeight = -size;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP hb = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (hb && bits) for (int y = 0; y < size; y++) memcpy((BYTE*)bits + (size_t)y * size * 4, (BYTE*)bd.Scan0 + (size_t)y * bd.Stride, (size_t)size * 4);
+  bmp.UnlockBits(&bd);
+  return hb;
 }
