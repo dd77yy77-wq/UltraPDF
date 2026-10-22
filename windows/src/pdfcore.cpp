@@ -60,8 +60,25 @@ bool PdfLoad(ws* err) {
 }
 
 // ------------------------------------------------------------------ document
+FPDF_PAGE Doc::CachedPage(int idx) {
+  for (size_t i = 0; i < pcache.size(); i++)
+    if (pcache[i].first == idx) {
+      auto e = pcache[i];
+      pcache.erase(pcache.begin() + i);
+      pcache.push_back(e);
+      return e.second;
+    }
+  FPDF_PAGE pg = PA.FPDF_LoadPage(h, idx);
+  if (!pg) return nullptr;
+  if (pcache.size() >= 8) { PA.FPDF_ClosePage(pcache.front().second); pcache.erase(pcache.begin()); }
+  pcache.push_back({idx, pg});
+  return pg;
+}
+
 Doc::~Doc() {
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  for (auto& e : pcache) PA.FPDF_ClosePage(e.second);
+  pcache.clear();
   if (h) PA.FPDF_CloseDocument(h);
   h = nullptr;
   if (hf != INVALID_HANDLE_VALUE) CloseHandle(hf);
@@ -262,26 +279,28 @@ static bool g_stop = false;
 static std::thread g_thread;
 static std::atomic<bool> g_refreshPosted{false};
 
+double g_rndMs = 0; int g_rndN = 0;
 static void RenderJob(const Job& j) {
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  uint64_t rt0 = GetTickCount64();
   if (j.doc->closed) return;
-  FPDF_PAGE pg = PA.FPDF_LoadPage(j.doc->h, j.key.page);
+  FPDF_PAGE pg = j.doc->CachedPage(j.key.page);
   if (!pg) return;
   void* bits = nullptr;
   HBITMAP hb = MakeDib(j.tw, j.th, &bits);
-  if (!hb) { PA.FPDF_ClosePage(pg); return; }
+  if (!hb) return;
   FPDF_BITMAP bm = PA.FPDFBitmap_CreateEx(j.tw, j.th, 3 /*BGRx*/, bits, j.tw * 4);
   PA.FPDFBitmap_FillRect(bm, 0, 0, j.tw, j.th, 0xFFFFFFFF);
   int flags = FPDF_ANNOT | (j.key.mode == 0 && j.key.kind == 0 ? FPDF_LCD_TEXT : 0);
   PA.FPDF_RenderPageBitmap(bm, pg, -j.ox, -j.oy, j.pageW, j.pageH, j.key.rot & 3, flags);
   PA.FPDFBitmap_Destroy(bm);
-  PA.FPDF_ClosePage(pg);
   if (j.key.mode) TintBits((uint32_t*)bits, (size_t)j.tw * j.th, j.key.mode);
   Tile t;
   t.bmp = hb;
   t.w = j.tw;
   t.h = j.th;
   CachePut(j.key, t);
+  g_rndMs += (double)(GetTickCount64() - rt0); g_rndN++;
 }
 
 static void Notify() {

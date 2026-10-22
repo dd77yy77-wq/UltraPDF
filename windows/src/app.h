@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 11
-#define APP_VERSION_NAME L"1.1"
-#define APP_VERSION_NAME_A "1.1"
+#define APP_VERSION_CODE 12
+#define APP_VERSION_NAME L"1.2"
+#define APP_VERSION_NAME_A "1.2"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -193,6 +193,8 @@ struct Doc {
   std::map<int, std::shared_ptr<PageData>> pdata;
   std::atomic<bool> closed{false};
   FPDF_FILEACCESS fa;
+  std::vector<std::pair<int, FPDF_PAGE>> pcache;   // loaded pages kept for tile rendering (under g_pdf)
+  FPDF_PAGE CachedPage(int idx);
   ~Doc();
 };
 extern std::recursive_mutex g_pdf;     // guards every PDFium call

@@ -1,0 +1,130 @@
+size 1500 900
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 3000
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wheel -240 0
+wait 25
+wait 450
+shot Z:\tmp\t\21a.bmp
+info Z:\tmp\t\21c.txt
+wait 3000
+shot Z:\tmp\t\21b.bmp
+info Z:\tmp\t\21.txt
+quit

@@ -1,0 +1,15 @@
+size 1900 1000
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 2500
+cmd zoomin
+cmd zoomin
+cmd zoomin
+cmd zoomin
+wait 2500
+shot Z:\tmp\t\23a.bmp
+wheel -240 0
+wheel -240 0
+wait 2500
+shot Z:\tmp\t\23b.bmp
+info Z:\tmp\t\23.txt
+quit

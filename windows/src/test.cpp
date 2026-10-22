@@ -142,7 +142,7 @@ static void ScriptThread(ws script) {
         if (t->doc) {
           auto pd = GetPageDataNow(t->doc, 0, false);
           extern double g_paintAvg; extern int g_ticks; extern int g_timerRet; extern int g_paintTotal;
-        o << "paints=" << g_paintTotal << "\n";
+        extern double g_rndMs; extern int g_rndN; o << "paints=" << g_paintTotal << "\nrenderN=" << g_rndN << " renderAvgMs=" << (g_rndN ? g_rndMs / g_rndN : 0) << "\n";
         o << "timerRet=" << g_timerRet << " err=" << GetLastError() << "\n";
         o << "ticks=" << g_ticks << "\n";
         o << "paintAvgMs=" << g_paintAvg << "\n";

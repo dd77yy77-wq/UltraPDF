@@ -1,0 +1,8 @@
+size 1500 900
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 2500
+info Z:\tmp\t\19a.txt
+cmd zoom100
+wait 1500
+info Z:\tmp\t\19b.txt
+quit
