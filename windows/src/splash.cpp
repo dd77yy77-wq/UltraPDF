@@ -32,10 +32,10 @@ static void Paint(HWND hw) {
   DeleteObject(lb);
   int icon = Sp(112);
   DrawAppIcon(dc, (g_w - icon) / 2, Sp(30), icon);
-  RECT r = {0, Sp(30) + icon + Sp(8), g_w, Sp(30) + icon + Sp(56)};
-  DrawTextW2(dc, L"UltraPDF", r, BrandRed(dark), UiFont(Sp(33), true), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
-  r = {0, Sp(30) + icon + Sp(58), g_w, Sp(30) + icon + Sp(82)};
-  DrawTextW2(dc, L"Загрузка…", r, dark ? RGB(160, 162, 168) : RGB(110, 113, 120), UiFont(Sp(14)), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+  DrawWordmark(dc, g_w / 2, Sp(30) + icon + Sp(16), Sp(36), dark);
+  RECT r;
+  r = {0, Sp(30) + icon + Sp(58), g_w, Sp(30) + icon + Sp(90)};
+  DrawTextW2(dc, L"Загрузка…", r, BrandRed(dark), UiFont(Sp(20)), DT_CENTER | DT_SINGLELINE | DT_VCENTER);
   BitBlt(dc0, 0, 0, g_w, g_h, dc, 0, 0, SRCCOPY);
   SelectObject(dc, old);
   DeleteObject(bm);
@@ -70,8 +70,9 @@ void SplashShow(HINSTANCE inst) {
   int dpi = GetDeviceCaps(sdc, LOGPIXELSX);
   ReleaseDC(nullptr, sdc);
   g_sc = dpi > 48 ? dpi / 96.0 : 1.0;
+  { wchar_t e[16]; if (GetEnvironmentVariableW(L"ULTRAPDF_SPLASH_SCALE", e, 16) > 0) g_sc = _wtof(e); }   // test only
   g_w = Sp(340);
-  g_h = Sp(296);
+  g_h = Sp(264);
   WNDCLASSEXW wc = {sizeof(wc)};
   wc.lpfnWndProc = SplashProc;
   wc.hInstance = inst;

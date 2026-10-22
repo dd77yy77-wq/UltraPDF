@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 16
-#define APP_VERSION_NAME L"1.6"
-#define APP_VERSION_NAME_A "1.6"
+#define APP_VERSION_CODE 17
+#define APP_VERSION_NAME L"1.7"
+#define APP_VERSION_NAME_A "1.7"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -157,6 +157,7 @@ HFONT UiFont(int px, bool bold = false);
 void DrawTextW2(HDC dc, const ws& s, RECT r, COLORREF col, HFONT f, UINT fmt);
 void DrawAppIcon(HDC dc, int x, int y, int size);
 COLORREF BrandRed(bool dark);    // colour of the program name
+int DrawWordmark(HDC dc, int cx, int y, int h, bool dark);   // the "UltraPDF" lettering from the icon, centred on cx, h px tall; returns its width
 // splash.cpp
 void SplashShow(HINSTANCE inst);
 void SplashClose();

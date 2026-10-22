@@ -635,8 +635,8 @@ static void PaintStart(HDC dc, RECT rc) {
   int cx = (rc.right - rc.left) / 2;
   int top = max(S(40), (rc.bottom - S(560)) / 2);
   DrawAppIcon(dc, cx - S(48), top, S(96));
-  RECT r = {rc.left, top + S(104), rc.right, top + S(146)};
-  DrawTextW2(dc, L"UltraPDF", r, BrandRed(T.dark), UiFont(S(31), true), DT_CENTER | DT_SINGLELINE);
+  DrawWordmark(dc, cx, top + S(110), S(32), T.dark);
+  RECT r;
   r = {rc.left, top + S(150), rc.right, top + S(174)};
   DrawTextW2(dc, L"Перетащите PDF в окно или нажмите «Открыть»", r, T.dim, UiFont(S(14)), DT_CENTER | DT_SINGLELINE);
   RECT b = {cx - S(80), top + S(184), cx + S(80), top + S(222)};

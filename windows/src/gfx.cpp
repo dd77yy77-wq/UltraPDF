@@ -5,6 +5,7 @@ using namespace Gdiplus;
 
 static ULONG_PTR g_gdipToken = 0;
 static Bitmap* g_appIcon = nullptr;
+static Bitmap* g_wordmark = nullptr;
 static std::map<int, HFONT> g_fonts;
 
 void GfxInit() {
@@ -21,8 +22,21 @@ void GfxInit() {
       st->Release();
     }
   }
+  HRSRC r2 = FindResourceW(nullptr, MAKEINTRESOURCEW(302), RT_RCDATA);
+  if (r2) {
+    HGLOBAL g2 = LoadResource(nullptr, r2);
+    void* p2 = LockResource(g2);
+    DWORD sz2 = SizeofResource(nullptr, r2);
+    IStream* st2 = SHCreateMemStream((const BYTE*)p2, sz2);
+    if (st2) {
+      g_wordmark = Bitmap::FromStream(st2);
+      st2->Release();
+    }
+  }
 }
 void GfxShutdown() {
+  delete g_wordmark;
+  g_wordmark = nullptr;
   delete g_appIcon;
   g_appIcon = nullptr;
   for (auto& f : g_fonts) DeleteObject(f.second);
@@ -39,6 +53,70 @@ void DrawAppIcon(HDC dc, int x, int y, int size) {
   Graphics g(dc);
   g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
   g.DrawImage(g_appIcon, x, y, size, size);
+}
+
+// Wordmark: the source alpha mask is box-filtered (area average) down to the exact target size, so the edges stay smooth at any size
+static std::vector<BYTE> g_wmAlpha;
+static int g_wmW = 0, g_wmH = 0;
+
+static void WordmarkLoadMask() {
+  if (!g_wmAlpha.empty() || !g_wordmark) return;
+  int w = (int)g_wordmark->GetWidth(), h = (int)g_wordmark->GetHeight();
+  BitmapData bd;
+  Rect r(0, 0, w, h);
+  if (g_wordmark->LockBits(&r, ImageLockModeRead, PixelFormat32bppARGB, &bd) != Ok) return;
+  g_wmAlpha.resize((size_t)w * h);
+  for (int y = 0; y < h; y++) {
+    const BYTE* row = (const BYTE*)bd.Scan0 + (ptrdiff_t)y * bd.Stride;
+    for (int x = 0; x < w; x++) g_wmAlpha[(size_t)y * w + x] = row[x * 4 + 3];
+  }
+  g_wordmark->UnlockBits(&bd);
+  g_wmW = w;
+  g_wmH = h;
+}
+
+int DrawWordmark(HDC dc, int cx, int y, int h, bool dark) {
+  WordmarkLoadMask();
+  if (g_wmAlpha.empty() || h < 4) return 0;
+  int w = (int)lround((double)h * g_wmW / g_wmH);
+  COLORREF c = BrandRed(dark);
+  BITMAPINFO bi = {};
+  bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bi.bmiHeader.biWidth = w;
+  bi.bmiHeader.biHeight = -h;
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bm = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!bm) return 0;
+  double sx = (double)g_wmW / w, sy = (double)g_wmH / h;
+  int rr = GetRValue(c), gg = GetGValue(c), bb = GetBValue(c);
+  for (int oy = 0; oy < h; oy++) {
+    int y0 = (int)floor(oy * sy), y1 = min(g_wmH, max(y0 + 1, (int)ceil((oy + 1) * sy)));
+    for (int ox = 0; ox < w; ox++) {
+      int x0 = (int)floor(ox * sx), x1 = min(g_wmW, max(x0 + 1, (int)ceil((ox + 1) * sx)));
+      unsigned sum = 0;
+      for (int yy = y0; yy < y1; yy++) {
+        const BYTE* row = &g_wmAlpha[(size_t)yy * g_wmW];
+        for (int xx = x0; xx < x1; xx++) sum += row[xx];
+      }
+      unsigned a = sum / (unsigned)((y1 - y0) * (x1 - x0));
+      BYTE* px = (BYTE*)bits + ((size_t)oy * w + ox) * 4;
+      px[0] = (BYTE)(bb * a / 255);     // premultiplied BGRA
+      px[1] = (BYTE)(gg * a / 255);
+      px[2] = (BYTE)(rr * a / 255);
+      px[3] = (BYTE)a;
+    }
+  }
+  HDC mem = CreateCompatibleDC(dc);
+  HGDIOBJ old = SelectObject(mem, bm);
+  BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+  AlphaBlend(dc, cx - w / 2, y, w, h, mem, 0, 0, w, h, bf);
+  SelectObject(mem, old);
+  DeleteDC(mem);
+  DeleteObject(bm);
+  return w;
 }
 
 HFONT UiFont(int px, bool bold) {
