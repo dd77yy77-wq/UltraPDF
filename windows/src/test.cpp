@@ -134,6 +134,10 @@ static void ScriptThread(ws script) {
       OnUI([=]() { ViewZoom(z, -1, -1); });
     } else if (c == "startfind") {
       OnUI([]() { SendMessageW(A_.main, WM_TIMER, 11, 0); });
+    } else if (c == "render") {
+      int m = atoi(rest.c_str());
+      int id = m == 0 ? ID_RM_AUTO : m == 1 ? ID_RM_GDI : m == 2 ? ID_RM_NV : ID_RM_AMD;
+      OnUI([id]() { DoCmd(id); });
     } else if (c == "info") {
       std::string f = rest;
       OnUI([f]() {

@@ -227,11 +227,13 @@ int ViewCurPage() {
 }
 
 // ---------------------------------------------------------------- scrollbars
+static bool g_syncReset = false;                       // set when the view window was re-created: the scroll bar caches below are stale
 void ViewSync() {
   Tab* t = CurTab();
   if (!g_hw) return;
   // the scroll bars are only touched when something changed: every call repaints the non-client area synchronously, which costs frame time
   static int lMax = -2, lPage = -2, lPos = -2, lHMax = -2, lHPage = -2, lHPos = -2, lHShow = -1, lMode = -1;
+  if (g_syncReset) { lMax = lPage = lPos = lHMax = lHPage = lHPos = -2; lHShow = lMode = -1; g_syncReset = false; }
   SCROLLINFO si = {};
   si.cbSize = sizeof(si);
   si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
@@ -1540,4 +1542,16 @@ bool ViewRegister(HINSTANCE inst) {
 HWND ViewCreate(HWND parent) {
   return CreateWindowExW(WS_EX_ACCEPTFILES, L"UltraPDF.View", L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_VSCROLL, 0, 0, 100, 100, parent,
                          nullptr, A_.inst, nullptr);
+}
+
+// A window that has had a flip-model swap chain does not take GDI output reliably after the chain is released (the picture
+// freezes), so a change of the rendering mode gives the document a fresh window.
+void ViewRecreate() {
+  PresentShutdown();
+  HWND old = A_.view;
+  bool focus = GetFocus() == old;
+  A_.view = ViewCreate(A_.main);                         // WM_CREATE makes it the current g_hw
+  if (old) DestroyWindow(old);
+  g_syncReset = true;
+  if (focus && A_.view) SetFocus(A_.view);
 }

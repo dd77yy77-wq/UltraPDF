@@ -329,6 +329,15 @@ static void DrawIconG(Graphics& g, Icon ic, FRect R, COLORREF col, float sw) {
       break;
     }
     case IC_INFO: g.DrawEllipse(&pen, x0 + 2.5f * k, y0 + 2.5f * k, 15 * k, 15 * k); L(10, 9, 10, 14); L(10, 6.3f, 10.05f, 6.3f); break;
+    case IC_GEAR: {
+      g.DrawEllipse(&pen, x0 + 7.2f * k, y0 + 7.2f * k, 5.6f * k, 5.6f * k);
+      g.DrawEllipse(&pen, x0 + 4.2f * k, y0 + 4.2f * k, 11.6f * k, 11.6f * k);
+      for (int a = 0; a < 8; a++) {
+        float an = a * 0.7853982f, c = cosf(an), sn = sinf(an);
+        L(10 + 5.8f * c, 10 + 5.8f * sn, 10 + 8.2f * c, 10 + 8.2f * sn);
+      }
+      break;
+    }
     case IC_EXIT: {
       PointF b[] = {P(8.5f, 3.5f), P(3.5f, 3.5f), P(3.5f, 16.5f), P(8.5f, 16.5f)}; g.DrawLines(&pen, b, 4);
       L(8, 10, 17, 10);

@@ -756,16 +756,15 @@ static void ShowMainMenu(int x, int y, RECT btn) {
     AppendMenuW(m, MF_STRING | (G.readMode == 2 ? MF_CHECKED : 0), ID_NIGHT_TOGGLE, L"Ночной режим\tCtrl+M");
   }
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-  {
-    HMENU rm = CreatePopupMenu();
-    AppendMenuW(rm, MF_STRING | (G.renderMode == 0 ? MF_CHECKED : 0), ID_RM_AUTO, L"Авто (по видеокарте)");
-    AppendMenuW(rm, MF_STRING | (G.renderMode == 1 ? MF_CHECKED : 0), ID_RM_GDI, L"Классический (без DirectX)");
-    AppendMenuW(rm, MF_STRING | (G.renderMode == 2 ? MF_CHECKED : 0), ID_RM_NV, L"Плавный, для NVIDIA / Intel");
-    AppendMenuW(rm, MF_STRING | (G.renderMode == 3 ? MF_CHECKED : 0), ID_RM_AMD, L"Плавный, для AMD");
-    AppendMenuW(m, MF_POPUP, (UINT_PTR)rm, L"Рендеринг");
-  }
   AppendMenuW(m, MF_STRING, ID_ASSOC, L"Сделать программой для PDF…");
   AppendMenuW(m, MF_STRING, ID_UPDATE, L"Проверить обновления");
+  HMENU setm = CreatePopupMenu(), rm = CreatePopupMenu();
+  AppendMenuW(rm, MF_STRING | (G.renderMode == 0 ? MF_CHECKED : 0), ID_RM_AUTO, L"Авто (по видеокарте)");
+  AppendMenuW(rm, MF_STRING | (G.renderMode == 1 ? MF_CHECKED : 0), ID_RM_GDI, L"Классический (без DirectX)");
+  AppendMenuW(rm, MF_STRING | (G.renderMode == 2 ? MF_CHECKED : 0), ID_RM_NV, L"Плавный, для NVIDIA / Intel");
+  AppendMenuW(rm, MF_STRING | (G.renderMode == 3 ? MF_CHECKED : 0), ID_RM_AMD, L"Плавный, для AMD");
+  AppendMenuW(setm, MF_POPUP, (UINT_PTR)rm, L"Рендеринг");
+  AppendMenuW(m, MF_POPUP, (UINT_PTR)setm, L"Настройки");
   AppendMenuW(m, MF_STRING, ID_ABOUT, L"О программе");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING, ID_EXIT, L"Выход");
@@ -795,6 +794,7 @@ static void ShowMainMenu(int x, int y, RECT btn) {
   }
   MenuIcon(m, ID_ASSOC, false, IC_APPS);
   MenuIcon(m, ID_UPDATE, false, IC_UPD);
+  for (int i = 0; i < GetMenuItemCount(m); i++) if (GetSubMenu(m, i) == setm) MenuIcon(m, (UINT)i, true, IC_GEAR);
   MenuIcon(m, ID_ABOUT, false, IC_INFO);
   MenuIcon(m, ID_EXIT, false, IC_EXIT);
   int cmd = TrackMenuToggle(m, x, y, btn);
@@ -880,7 +880,9 @@ void DoCmd(int id) {
       break;
     case ID_RM_AUTO: case ID_RM_GDI: case ID_RM_NV: case ID_RM_AMD:
       G.renderMode = id == ID_RM_AUTO ? 0 : id == ID_RM_GDI ? 1 : id == ID_RM_NV ? 2 : 3;
-      PresentShutdown();
+      ViewRecreate();
+      ThemeChildren();
+      MainLayout();
       ViewInvalidate();
       break;
     case ID_BOOKMARK: if (doc && G.pro) { ToggleBookmark(t, ViewCurPage()); ShowToast(IsBookmarked(t, ViewCurPage()) ? L"Закладка добавлена" : L"Закладка убрана"); } break;
