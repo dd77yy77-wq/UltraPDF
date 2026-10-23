@@ -6,6 +6,7 @@
 static HWND g_hw = nullptr;
 static int g_vw = 0, g_vh = 0;
 static HBITMAP g_back = nullptr;
+static void* g_backBits = nullptr;               // pixels of g_back (top-down 32 bit), for the tear-free present
 static HDC g_backDC = nullptr;
 static int g_backW = 0, g_backH = 0;
 static uint64_t g_lastTick = 0;
@@ -794,7 +795,16 @@ static void EnsureBack(HDC dc, int w, int h) {
   if (g_back) DeleteObject(g_back);
   if (g_backDC) DeleteDC(g_backDC);
   g_backDC = CreateCompatibleDC(dc);
-  g_back = CreateCompatibleBitmap(dc, max(w, 1), max(h, 1));
+  BITMAPINFO bi = {};
+  bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bi.bmiHeader.biWidth = max(w, 1);
+  bi.bmiHeader.biHeight = -max(h, 1);
+  bi.bmiHeader.biPlanes = 1;
+  bi.bmiHeader.biBitCount = 32;
+  bi.bmiHeader.biCompression = BI_RGB;
+  g_backBits = nullptr;
+  g_back = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &g_backBits, nullptr, 0);
+  if (!g_back) { g_backBits = nullptr; g_back = CreateCompatibleBitmap(dc, max(w, 1), max(h, 1)); }
   SelectObject(g_backDC, g_back);
   g_backW = w; g_backH = h;
 }
@@ -1100,7 +1110,8 @@ static void OnPaint(HWND hw) {
   }
   if (A_.fullscreen) PaintFullscreenButton(dc, rc);
   DrawToast(dc, rc);
-  BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+  GdiFlush();                                           // the DIB must be complete before it is read
+  if (!(g_backBits && PresentFrame(hw, g_backBits, rc.right, rc.bottom))) BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
   EndPaint(hw, &ps);
   g_paintAvg = (g_paintAvg * g_paintN + (double)(GetTickCount64() - t0)) / (g_paintN + 1);
   if (g_paintN < 50) g_paintN++;

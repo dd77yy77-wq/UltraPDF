@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 21
-#define APP_VERSION_NAME L"1.11"
-#define APP_VERSION_NAME_A "1.11"
+#define APP_VERSION_CODE 22
+#define APP_VERSION_NAME L"1.12"
+#define APP_VERSION_NAME_A "1.12"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -358,6 +358,9 @@ void ViewInvalidateTiles();
 void ViewSync();                         // rebuild layout/scrollbars for the current tab
 void ViewGoPage(int page, float yPt, bool animate, bool pushBack);
 int ViewCurPage();
+bool PresentFrame(HWND hw, const void* bits, int w, int h);   // tear-free flip-model present; false = caller BitBlts
+bool PresentActive();
+void PresentShutdown();
 void ViewZoom(double z, int anchorX, int anchorY);
 void ViewPinch(double ratio, int cx, int cy, bool follow, double tau);   // smooth pinch / Ctrl+wheel zoom (snapshot is stretched, real zoom applied when input pauses)
 void ViewPinchFlush();

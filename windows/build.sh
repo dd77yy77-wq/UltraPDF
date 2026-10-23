@@ -23,6 +23,6 @@ done
 fail=0
 for p in "${pids[@]}"; do wait $p || fail=1; done
 [ $fail = 0 ] || exit 1
-$CXX -O2 -static -mwindows -municode -o "$OUT" $OBJS -lgdiplus -lgdi32 -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi -lwinhttp -ladvapi32 -ldwmapi -luxtheme -lole32 -luser32 -lkernel32 -lmsimg32 -lwinspool
+$CXX -O2 -static -mwindows -municode -o "$OUT" $OBJS -lgdiplus -lgdi32 -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi -lwinhttp -ladvapi32 -ldwmapi -luxtheme -lole32 -luser32 -lkernel32 -lmsimg32 -lwinspool -ldxguid
 $TC/bin/x86_64-w64-mingw32-strip "$OUT"
 ls -l "$OUT"
