@@ -33,6 +33,7 @@ static DWORD WINAPI VsyncThread(LPVOID) {
 }
 extern int g_ticks; extern int g_timerRet;
 static uint64_t g_zoomBusy = 0;
+static double g_lastPaintAt = 0;                   // when the previous frame was presented
 static double g_lastPaintMs = 0;                   // cost of the previous frame: decides whether the nicer (slower) stretching is affordable
 static bool g_visMiss = true;
 static int g_trMiss = 0, g_trBlank = 0, g_trQueue = 0;
@@ -1112,12 +1113,13 @@ static void OnPaint(HWND hw) {
   if (A_.fullscreen) PaintFullscreenButton(dc, rc);
   DrawToast(dc, rc);
   GdiFlush();                                           // the DIB must be complete before it is read
-  if (!(g_backBits && PresentFrame(hw, g_backBits, rc.right, rc.bottom))) BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+  if (!(G.flipMode != 2 && g_backBits && PresentFrame(hw, g_backBits, rc.right, rc.bottom))) BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
   EndPaint(hw, &ps);
   g_paintAvg = (g_paintAvg * g_paintN + (double)(GetTickCount64() - t0)) / (g_paintN + 1);
   if (g_paintN < 50) g_paintN++;
   g_paintTotal++;
   g_lastPaintMs = (double)(GetTickCount64() - t0);
+  g_lastPaintAt = QpcMs();
   if (!g_traceInit) { g_traceInit = true; wchar_t e[512]; if (GetEnvironmentVariableW(L"ULTRAPDF_TRACE", e, 512) > 0) g_trace = _wfopen(e, L"w"); }
   if (g_trace) { Tab* tt = CurTab(); fprintf(g_trace, "%llu sy=%.1f miss=%d blank=%d ms=%llu\n", (unsigned long long)GetTickCount64(), tt ? tt->sy : 0.0, g_trMiss, g_trBlank, (unsigned long long)(GetTickCount64() - t0)); fflush(g_trace); }
 }

@@ -751,6 +751,11 @@ static void ShowMainMenu(int x, int y, RECT btn) {
     AppendMenuW(ap, MF_STRING | (G.themeMode == 0 ? MF_CHECKED : 0), ID_THEME_SYS, L"Окно: как в системе");
     AppendMenuW(ap, MF_STRING | (G.themeMode == 1 ? MF_CHECKED : 0), ID_THEME_LIGHT, L"Окно: светлое");
     AppendMenuW(ap, MF_STRING | (G.themeMode == 2 ? MF_CHECKED : 0), ID_THEME_DARK, L"Окно: тёмное");
+    AppendMenuW(ap, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(ap, MF_STRING | (G.flipMode == 0 ? MF_CHECKED : 0), ID_FLIP_AUTO, L"Вывод кадра: авто");
+    AppendMenuW(ap, MF_STRING | (G.flipMode == 1 ? MF_CHECKED : 0), ID_FLIP_ON, L"Вывод кадра: плавный (DirectX)");
+    AppendMenuW(ap, MF_STRING | (G.flipMode == 3 ? MF_CHECKED : 0), ID_FLIP_BLT, L"Вывод кадра: копирование (DirectX)");
+    AppendMenuW(ap, MF_STRING | (G.flipMode == 2 ? MF_CHECKED : 0), ID_FLIP_OFF, L"Вывод кадра: классический");
     AppendMenuW(m, MF_POPUP, (UINT_PTR)ap, L"Внешний вид");
   } else {
     AppendMenuW(m, MF_STRING | (G.readMode == 2 ? MF_CHECKED : 0), ID_NIGHT_TOGGLE, L"Ночной режим\tCtrl+M");
@@ -869,6 +874,11 @@ void DoCmd(int id) {
     case ID_THEME_SYS: case ID_THEME_LIGHT: case ID_THEME_DARK:
       G.themeMode = id == ID_THEME_SYS ? 0 : (id == ID_THEME_LIGHT ? 1 : 2);
       ReTheme();
+      break;
+    case ID_FLIP_AUTO: case ID_FLIP_ON: case ID_FLIP_OFF: case ID_FLIP_BLT:
+      G.flipMode = id == ID_FLIP_AUTO ? 0 : id == ID_FLIP_ON ? 1 : id == ID_FLIP_OFF ? 2 : 3;
+      PresentShutdown();
+      ViewInvalidate();
       break;
     case ID_BOOKMARK: if (doc && G.pro) { ToggleBookmark(t, ViewCurPage()); ShowToast(IsBookmarked(t, ViewCurPage()) ? L"Закладка добавлена" : L"Закладка убрана"); } break;
     case ID_PRINT: if (doc && G.pro) PrintDoc(A_.main); break;

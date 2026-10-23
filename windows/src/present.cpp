@@ -2,7 +2,9 @@
 // (DWM can pick the window surface up half-way through the copy: the top of the picture is from one moment, the bottom from
 // another, which on a big screen looks like parts of the page moving at different speeds), the finished frame is handed to
 // the compositor as a whole through a flip-model DXGI swap chain. Without a usable GPU / Windows 8+ everything falls back to
-// the plain BitBlt, so the app works exactly as before there.
+// the plain BitBlt, so the app works exactly as before there. On AMD graphics (seen on the Ryzen Z2 Extreme handheld) the
+// flip chain produced coloured garbage on the real display during zoom (screenshots stay clean), so in the default "auto"
+// mode AMD gets a blt-model DXGI chain instead (one atomic GPU copy, no flip/overlay); the menu can force any of the paths.
 #include "app.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -28,6 +30,8 @@ static void Release() {
 static bool Create(HWND hw, int w, int h) {
   wchar_t e[8];
   if (GetEnvironmentVariableW(L"ULTRAPDF_NOFLIP", e, 8) > 0) return false;           // escape hatch / tests of the fallback
+  { wchar_t m[8]; if (GetEnvironmentVariableW(L"ULTRAPDF_FLIPMODE", m, 8) > 0) G.flipMode = _wtoi(m); }   // test override
+  if (G.flipMode == 2) return false;
   HMODULE d3d = LoadLibraryW(L"d3d11.dll");
   if (!d3d) return false;
   D3D11CreateDeviceFn create = (D3D11CreateDeviceFn)GetProcAddress(d3d, "D3D11CreateDevice");
@@ -40,21 +44,38 @@ static bool Create(HWND hw, int w, int h) {
   IDXGIAdapter* adapter = nullptr;
   IDXGIFactory2* factory = nullptr;
   bool ok = false;
-  if (SUCCEEDED(g_dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDev)) && SUCCEEDED(dxgiDev->GetAdapter(&adapter)) &&
-      SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory2), (void**)&factory))) {
+  bool bltModel = G.flipMode == 3;
+  if (SUCCEEDED(g_dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDev)) && SUCCEEDED(dxgiDev->GetAdapter(&adapter))) {
+    DXGI_ADAPTER_DESC ad = {};
+    if (G.flipMode == 0 && SUCCEEDED(adapter->GetDesc(&ad)) && ad.VendorId == 0x1002) bltModel = true;   // "auto" on AMD: see the note at the top
+  }
+  if (adapter && SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory2), (void**)&factory))) {
     DXGI_SWAP_CHAIN_DESC1 d = {};
     d.Width = (UINT)max(w, 1);
     d.Height = (UINT)max(h, 1);
     d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     d.SampleDesc.Count = 1;
     d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    d.BufferCount = 2;
-    d.Scaling = DXGI_SCALING_NONE;
-    d.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
-    DXGI_SWAP_EFFECT effects[] = {DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL};
-    for (DXGI_SWAP_EFFECT fx : effects) {
-      d.SwapEffect = fx;
-      if (SUCCEEDED(factory->CreateSwapChainForHwnd(g_dev, hw, &d, nullptr, nullptr, &g_sc)) && g_sc) { ok = true; break; }
+    if (bltModel) {
+      // Blt model: Present() is one GPU copy of the whole frame into the window surface (no half-drawn frames, so still tear-free),
+      // but no flip chain / overlay plane is involved.
+      d.BufferCount = 1;
+      d.Scaling = DXGI_SCALING_STRETCH;
+      d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+      DXGI_SWAP_EFFECT effects[] = {DXGI_SWAP_EFFECT_DISCARD, DXGI_SWAP_EFFECT_SEQUENTIAL};
+      for (DXGI_SWAP_EFFECT fx : effects) {
+        d.SwapEffect = fx;
+        if (SUCCEEDED(factory->CreateSwapChainForHwnd(g_dev, hw, &d, nullptr, nullptr, &g_sc)) && g_sc) { ok = true; break; }
+      }
+    } else {
+      d.BufferCount = 2;
+      d.Scaling = DXGI_SCALING_NONE;
+      d.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+      DXGI_SWAP_EFFECT effects[] = {DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL};
+      for (DXGI_SWAP_EFFECT fx : effects) {
+        d.SwapEffect = fx;
+        if (SUCCEEDED(factory->CreateSwapChainForHwnd(g_dev, hw, &d, nullptr, nullptr, &g_sc)) && g_sc) { ok = true; break; }
+      }
     }
     if (ok) factory->MakeWindowAssociation(hw, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
   }
@@ -70,7 +91,7 @@ static bool Create(HWND hw, int w, int h) {
 
 bool PresentActive() { return g_sc != nullptr; }
 
-void PresentShutdown() { Release(); }
+void PresentShutdown() { Release(); g_failed = false; }          // also used when the user changes the output mode: the next frame starts afresh
 
 // bits: top-down 32-bit BGRX, w*4 bytes per row. Returns false when the caller has to BitBlt instead.
 bool PresentFrame(HWND hw, const void* bits, int w, int h) {
