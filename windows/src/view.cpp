@@ -1113,7 +1113,7 @@ static void OnPaint(HWND hw) {
   if (A_.fullscreen) PaintFullscreenButton(dc, rc);
   DrawToast(dc, rc);
   GdiFlush();                                           // the DIB must be complete before it is read
-  if (!(G.flipMode != 2 && g_backBits && PresentFrame(hw, g_backBits, rc.right, rc.bottom))) BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+  if (!(G.renderMode != 1 && g_backBits && PresentFrame(hw, g_backBits, rc.right, rc.bottom))) BitBlt(dc0, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
   EndPaint(hw, &ps);
   g_paintAvg = (g_paintAvg * g_paintN + (double)(GetTickCount64() - t0)) / (g_paintN + 1);
   if (g_paintN < 50) g_paintN++;

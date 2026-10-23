@@ -751,16 +751,19 @@ static void ShowMainMenu(int x, int y, RECT btn) {
     AppendMenuW(ap, MF_STRING | (G.themeMode == 0 ? MF_CHECKED : 0), ID_THEME_SYS, L"Окно: как в системе");
     AppendMenuW(ap, MF_STRING | (G.themeMode == 1 ? MF_CHECKED : 0), ID_THEME_LIGHT, L"Окно: светлое");
     AppendMenuW(ap, MF_STRING | (G.themeMode == 2 ? MF_CHECKED : 0), ID_THEME_DARK, L"Окно: тёмное");
-    AppendMenuW(ap, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(ap, MF_STRING | (G.flipMode == 0 ? MF_CHECKED : 0), ID_FLIP_AUTO, L"Вывод кадра: авто");
-    AppendMenuW(ap, MF_STRING | (G.flipMode == 1 ? MF_CHECKED : 0), ID_FLIP_ON, L"Вывод кадра: плавный (DirectX)");
-    AppendMenuW(ap, MF_STRING | (G.flipMode == 3 ? MF_CHECKED : 0), ID_FLIP_BLT, L"Вывод кадра: копирование (DirectX)");
-    AppendMenuW(ap, MF_STRING | (G.flipMode == 2 ? MF_CHECKED : 0), ID_FLIP_OFF, L"Вывод кадра: классический");
     AppendMenuW(m, MF_POPUP, (UINT_PTR)ap, L"Внешний вид");
   } else {
     AppendMenuW(m, MF_STRING | (G.readMode == 2 ? MF_CHECKED : 0), ID_NIGHT_TOGGLE, L"Ночной режим\tCtrl+M");
   }
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  {
+    HMENU rm = CreatePopupMenu();
+    AppendMenuW(rm, MF_STRING | (G.renderMode == 0 ? MF_CHECKED : 0), ID_RM_AUTO, L"Авто (по видеокарте)");
+    AppendMenuW(rm, MF_STRING | (G.renderMode == 1 ? MF_CHECKED : 0), ID_RM_GDI, L"Классический (без DirectX)");
+    AppendMenuW(rm, MF_STRING | (G.renderMode == 2 ? MF_CHECKED : 0), ID_RM_NV, L"Плавный, для NVIDIA / Intel");
+    AppendMenuW(rm, MF_STRING | (G.renderMode == 3 ? MF_CHECKED : 0), ID_RM_AMD, L"Плавный, для AMD");
+    AppendMenuW(m, MF_POPUP, (UINT_PTR)rm, L"Рендеринг");
+  }
   AppendMenuW(m, MF_STRING, ID_ASSOC, L"Сделать программой для PDF…");
   AppendMenuW(m, MF_STRING, ID_UPDATE, L"Проверить обновления");
   AppendMenuW(m, MF_STRING, ID_ABOUT, L"О программе");
@@ -875,8 +878,8 @@ void DoCmd(int id) {
       G.themeMode = id == ID_THEME_SYS ? 0 : (id == ID_THEME_LIGHT ? 1 : 2);
       ReTheme();
       break;
-    case ID_FLIP_AUTO: case ID_FLIP_ON: case ID_FLIP_OFF: case ID_FLIP_BLT:
-      G.flipMode = id == ID_FLIP_AUTO ? 0 : id == ID_FLIP_ON ? 1 : id == ID_FLIP_OFF ? 2 : 3;
+    case ID_RM_AUTO: case ID_RM_GDI: case ID_RM_NV: case ID_RM_AMD:
+      G.renderMode = id == ID_RM_AUTO ? 0 : id == ID_RM_GDI ? 1 : id == ID_RM_NV ? 2 : 3;
       PresentShutdown();
       ViewInvalidate();
       break;

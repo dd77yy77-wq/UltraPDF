@@ -43,9 +43,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
 
-#define APP_VERSION_CODE 27
-#define APP_VERSION_NAME L"1.17"
-#define APP_VERSION_NAME_A "1.17"
+#define APP_VERSION_CODE 28
+#define APP_VERSION_NAME L"1.18"
+#define APP_VERSION_NAME_A "1.18"
 #define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
 #define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
@@ -121,7 +121,7 @@ struct DocState {
 struct Settings {
   bool pro = true;
   int themeMode = 0;
-  int flipMode = 0;              // frame output: 0 auto (DirectX flip; blt-model on AMD), 1 DirectX flip, 2 classic GDI copy, 3 DirectX blt-model copy
+  int renderMode = 0;            // frame output: 0 auto (by GPU vendor), 1 classic GDI BitBlt, 2 DirectX flip for NVIDIA/Intel (direct upload), 3 DirectX flip for AMD (upload through staging textures)
   int readMode = 0;              // 0 day, 1 sepia, 2 night
   bool sidebar = true;
   int sideW = 250;
@@ -330,7 +330,7 @@ enum Cmd {
   ID_GOTO, ID_ZOOM_IN, ID_ZOOM_OUT, ID_ZOOM_100, ID_FIT_W, ID_FIT_P, ID_ROT_CW, ID_ROT_CCW, ID_NIGHT_TOGGLE,
   ID_BOOKMARK, ID_PRINT, ID_FULLSCREEN, ID_PRESENT, ID_SAVEAS, ID_SHOWFOLDER, ID_ABOUT, ID_UPDATE, ID_COPY,
   ID_SELALL, ID_BACK, ID_ASSOC, ID_EXIT, ID_MODE_DAY, ID_MODE_SEPIA, ID_MODE_NIGHT, ID_THEME_SYS,
-  ID_THEME_LIGHT, ID_THEME_DARK, ID_FLIP_AUTO, ID_FLIP_ON, ID_FLIP_OFF, ID_FLIP_BLT, ID_SIDE_PAGES, ID_SIDE_OUTLINE, ID_SIDE_BOOKS, ID_ZOOM_PRESET = 300,
+  ID_THEME_LIGHT, ID_THEME_DARK, ID_RM_AUTO, ID_RM_GDI, ID_RM_NV, ID_RM_AMD, ID_SIDE_PAGES, ID_SIDE_OUTLINE, ID_SIDE_BOOKS, ID_ZOOM_PRESET = 300,
   ID_HISTORY = 400, ID_CLEAR_HISTORY = 420, ID_NEWTAB_DLG, ID_PAGE_FIRST, ID_PAGE_LAST, ID_PAGE_NEXT, ID_PAGE_PREV
 };
 void DoCmd(int id);
