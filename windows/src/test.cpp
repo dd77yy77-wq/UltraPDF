@@ -171,6 +171,19 @@ static void ScriptThread(ws script) {
         });
         Sleep(ms);
       }
+    } else if (c == "dblzoom") {                         // double click, hold, drag vertically by dy pixels in n steps, release
+      int x, y, dy, n = 12;
+      sscanf(rest.c_str(), "%d %d %d %d", &x, &y, &dy, &n);
+      OnUI([=]() {
+        SendMessageW(A_.view, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(x, y));
+        SendMessageW(A_.view, WM_LBUTTONUP, 0, MAKELPARAM(x, y));
+        SendMessageW(A_.view, WM_LBUTTONDBLCLK, MK_LBUTTON, MAKELPARAM(x, y));
+      });
+      for (int i = 1; i <= n; i++) {
+        OnUI([=]() { SendMessageW(A_.view, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(x, y + dy * i / n)); });
+        Sleep(16);
+      }
+      OnUI([=]() { SendMessageW(A_.view, WM_LBUTTONUP, 0, MAKELPARAM(x, y + dy)); });
     } else if (c == "pinchrep") {                      // direct (finger-like) pinch: n steps of the given zoom ratio
       int n = 0, ms = 8;
       double r = 1.0;

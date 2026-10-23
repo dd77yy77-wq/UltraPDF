@@ -1,0 +1,15 @@
+# Double click + hold + drag up = zoom in, down = zoom out
+size 1400 800
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 2500
+zoom 1.0
+wait 500
+info Z:\tmp\t\29a.txt
+dblzoom 700 400 -150 15
+wait 1500
+shot Z:\tmp\t\29b.bmp
+info Z:\tmp\t\29b.txt
+dblzoom 700 400 200 15
+wait 1500
+info Z:\tmp\t\29c.txt
+quit

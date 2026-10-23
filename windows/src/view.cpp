@@ -47,7 +47,8 @@ bool ViewSettled() {
 }
 
 enum { TMR_ANIM = 1, TMR_DRAG = 2, TMR_ZOOM = 3 };
-enum Drag { D_NONE, D_PAN, D_SEL, D_PENDLINK };
+enum Drag { D_NONE, D_PAN, D_SEL, D_PENDLINK, D_PENDZOOM, D_ZOOM };
+static int g_zoomLastY = 0;
 static Drag g_drag = D_NONE;
 static POINT g_downPt, g_lastPt;
 static double g_downSx, g_downSy;
@@ -1171,7 +1172,8 @@ static LRESULT OnSetCursor(HWND hw) {
   if (A_.fullscreen && PtInRect(&g_closeBtn, pt)) cur = IDC_HAND;
   else if (!t) { if (StartHit(pt.x, pt.y) >= 0) cur = IDC_HAND; }
   else if (t->doc && t->layoutOk) {
-    if (g_drag == D_PAN) cur = IDC_SIZEALL;
+    if (g_drag == D_ZOOM) cur = IDC_SIZENS;
+    else if (g_drag == D_PAN) cur = IDC_SIZEALL;
     else if (g_drag == D_SEL) cur = IDC_IBEAM;
     else {
       int p;
@@ -1429,7 +1431,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
             bool inside, after;
             NearestChar(*pd, x, y, &inside, &after);
             if (inside) {
-              if (g_clickCount == 2) { SelectWordAt(t, mx, my, false); g_drag = D_NONE; }
+              if (g_clickCount == 2) g_drag = D_PENDZOOM;               // word selection or, if the mouse moves with the button held, zoom
               else if (g_clickCount >= 3) { SelectWordAt(t, mx, my, true); g_drag = D_NONE; g_clickCount = 0; }
               else {
                 int pp, cc;
@@ -1446,6 +1448,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
           }
         }
       }
+      if (g_clickCount == 2 && g_drag == D_PAN) g_drag = D_PENDZOOM;
       if (g_drag == D_PAN) ViewClearSel();
       ViewInvalidate();
       return 0;
@@ -1463,7 +1466,13 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       if (g_drag == D_PENDLINK) {
         if (abs(mx - g_downPt.x) > 4 || abs(my - g_downPt.y) > 4) g_drag = D_PAN;
       }
-      if (g_drag == D_PAN && (wp & MK_LBUTTON)) {
+      if (g_drag == D_PENDZOOM && (abs(mx - g_downPt.x) > 4 || abs(my - g_downPt.y) > 4)) { g_drag = D_ZOOM; g_zoomLastY = g_downPt.y; SetCursor(LoadCursorW(nullptr, IDC_SIZENS)); }
+      if (g_drag == D_ZOOM && (wp & MK_LBUTTON)) {
+        // double click, hold and drag: up = zoom in, down = zoom out, around the point that was clicked
+        int dy = g_zoomLastY - my;
+        g_zoomLastY = my;
+        if (dy) ViewPinch(exp(dy * 0.005), g_downPt.x, g_downPt.y, false, 0);
+      } else if (g_drag == D_PAN && (wp & MK_LBUTTON)) {
         t->sx = g_downSx - (mx - g_downPt.x);
         t->sy = g_downSy - (my - g_downPt.y);
         t->tx = t->sx; t->ty = t->sy;
@@ -1482,6 +1491,7 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       if (GetCapture() == hw) ReleaseCapture();
       KillTimer(hw, TMR_DRAG);
       if (was == D_PENDLINK) ViewFollowLink(pend);
+      else if (was == D_PENDZOOM) { Tab* t2 = CurTab(); if (t2 && t2->doc && G.pro) SelectWordAt(t2, g_downPt.x, g_downPt.y, false); }
       else if (was == D_SEL) {
         Tab* t = CurTab();
         if (t && t->sel.p0 == t->sel.p1 && t->sel.c0 == t->sel.c1) t->sel.active = false;
