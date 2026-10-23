@@ -1,0 +1,11 @@
+# Window resize keeps the page centred (document with one wide page)
+size 1500 800
+open Z:\home\claude\ultrapdf\windows\tests\mixed.pdf
+wait 1500
+zoom 1.0
+wait 500
+shot Z:\tmp\t\28a.bmp
+size 800 800
+wait 800
+shot Z:\tmp\t\28b.bmp
+quit

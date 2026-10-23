@@ -1233,13 +1233,17 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         int p = ViewCurPage();
         bool had = t->layoutOk && p < (int)t->ytop.size();
         double offPx = had ? t->sy - t->ytop[p] : 0, offPt = had ? offPx / t->scale : 0;
+        // the point of the page that is in the middle of the window stays in the middle (a half-screen snap must not leave the page at the left edge)
+        double midPt = had ? (t->sx + t->viewW / 2.0 - PageLeft(t, p)) / t->scale : 0;
         t->layoutOk = false;
         ViewEnsureLayout(t);
+        bool keepMid = had && !t->fit && p < (int)t->ytop.size();
         if (t->ytop.size() > (size_t)p) {
           t->sy = t->ytop[p] + (offPx < 0 ? offPx : offPt * t->scale);
           t->ty = t->sy;
         }
         if (t->fit) CenterX(t);
+        else if (keepMid) { t->sx = PageLeft(t, p) + midPt * t->scale - t->viewW / 2.0; t->tx = t->sx; }
         ClampScroll(t);
         ViewSync();
         MainUpdatePageBox();
