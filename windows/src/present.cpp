@@ -2,9 +2,9 @@
 // (DWM can pick the window surface up half-way through the copy: the top of the picture is from one moment, the bottom from
 // another, which on a big screen looks like parts of the page moving at different speeds), the finished frame is handed to
 // the compositor as a whole through a flip-model DXGI swap chain. Without a usable GPU / Windows 8+ everything falls back to
-// the plain BitBlt, so the app works exactly as before there. On AMD graphics (seen on the Ryzen Z2 Extreme handheld) the
-// flip chain produced coloured garbage on the real display during zoom (screenshots stay clean), so in the default "auto"
-// mode AMD gets a blt-model DXGI chain instead (one atomic GPU copy, no flip/overlay); the menu can force any of the paths.
+// the plain BitBlt, so the app works exactly as before there. The frame is uploaded through a dynamic texture + CopyResource:
+// writing it straight into the back buffer with UpdateSubresource produced coloured garbage on the real display of an AMD
+// Ryzen Z2 Extreme (screenshots stayed clean). The menu (Appearance > Frame output) can force flip / blt copy / classic GDI.
 #include "app.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
@@ -15,11 +15,15 @@ typedef HRESULT(WINAPI* D3D11CreateDeviceFn)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMO
 static ID3D11Device* g_dev = nullptr;
 static ID3D11DeviceContext* g_ctx = nullptr;
 static IDXGISwapChain1* g_sc = nullptr;
+static ID3D11Texture2D* g_up = nullptr;      // CPU-writable staging-style texture the frame is copied through (see PresentFrame)
+static int g_upW = 0, g_upH = 0;
 static HWND g_scWnd = nullptr;
 static int g_scW = 0, g_scH = 0;
 static bool g_failed = false;            // creation failed once: do not try again until the window is recreated
 
 static void Release() {
+  if (g_up) { g_up->Release(); g_up = nullptr; }
+  g_upW = g_upH = 0;
   if (g_sc) { g_sc->Release(); g_sc = nullptr; }
   if (g_ctx) { g_ctx->Release(); g_ctx = nullptr; }
   if (g_dev) { g_dev->Release(); g_dev = nullptr; }
@@ -46,8 +50,6 @@ static bool Create(HWND hw, int w, int h) {
   bool ok = false;
   bool bltModel = G.flipMode == 3;
   if (SUCCEEDED(g_dev->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDev)) && SUCCEEDED(dxgiDev->GetAdapter(&adapter))) {
-    DXGI_ADAPTER_DESC ad = {};
-    if (G.flipMode == 0 && SUCCEEDED(adapter->GetDesc(&ad)) && ad.VendorId == 0x1002) bltModel = true;   // "auto" on AMD: see the note at the top
   }
   if (adapter && SUCCEEDED(adapter->GetParent(__uuidof(IDXGIFactory2), (void**)&factory))) {
     DXGI_SWAP_CHAIN_DESC1 d = {};
@@ -109,7 +111,25 @@ bool PresentFrame(HWND hw, const void* bits, int w, int h) {
   }
   ID3D11Texture2D* tex = nullptr;
   if (FAILED(g_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&tex)) || !tex) { Release(); g_failed = true; return false; }
-  g_ctx->UpdateSubresource(tex, 0, nullptr, bits, (UINT)w * 4, 0);
+  // The frame used to be written straight into the back buffer with UpdateSubresource. On the AMD Ryzen Z2 Extreme that left
+  // coloured block garbage on the real display (screenshots stay clean: a compressed-surface problem of the driver). The usual
+  // way is used instead: write into an ordinary dynamic texture with Map and let the GPU copy it into the back buffer.
+  if (!g_up || g_upW != w || g_upH != h) {
+    if (g_up) { g_up->Release(); g_up = nullptr; }
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = (UINT)w; td.Height = (UINT)h; td.MipLevels = 1; td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; td.SampleDesc.Count = 1;
+    td.Usage = D3D11_USAGE_DYNAMIC; td.BindFlags = D3D11_BIND_SHADER_RESOURCE; td.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(g_dev->CreateTexture2D(&td, nullptr, &g_up)) || !g_up) { tex->Release(); Release(); g_failed = true; return false; }
+    g_upW = w; g_upH = h;
+  }
+  D3D11_MAPPED_SUBRESOURCE mp = {};
+  if (FAILED(g_ctx->Map(g_up, 0, D3D11_MAP_WRITE_DISCARD, 0, &mp)) || !mp.pData) { tex->Release(); Release(); g_failed = true; return false; }
+  const BYTE* src = (const BYTE*)bits;
+  BYTE* dst = (BYTE*)mp.pData;
+  for (int y = 0; y < h; y++) memcpy(dst + (size_t)y * mp.RowPitch, src + (size_t)y * w * 4, (size_t)w * 4);
+  g_ctx->Unmap(g_up, 0);
+  g_ctx->CopyResource(tex, g_up);
   tex->Release();
   HRESULT hr = g_sc->Present(0, 0);                       // the compositor takes the whole frame at its next vblank
   if (FAILED(hr) && hr != DXGI_STATUS_OCCLUDED) { Release(); g_failed = true; return false; }

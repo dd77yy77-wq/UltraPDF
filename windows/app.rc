@@ -5,8 +5,8 @@
 301 RCDATA "res/pdfium.dll"
 1 RT_MANIFEST "app.manifest"
 1 VERSIONINFO
-FILEVERSION 1,0,0,25
-PRODUCTVERSION 1,0,0,25
+FILEVERSION 1,0,0,26
+PRODUCTVERSION 1,0,0,26
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -16,8 +16,8 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "UltraPDF"
       VALUE "ProductName", "UltraPDF"
-      VALUE "FileVersion", "1.0.0.25"
-      VALUE "ProductVersion", "1.15"
+      VALUE "FileVersion", "1.0.0.26"
+      VALUE "ProductVersion", "1.16"
       VALUE "OriginalFilename", "UltraPDF.exe"
       VALUE "LegalCopyright", "PDFium (Apache-2.0)"
     END
