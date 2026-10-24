@@ -1,0 +1,16 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\obj.pdf
+wait 2500
+ed mode 2
+cmd fitp
+wait 600
+ed tool select
+ed dclick 0 100 112
+wait 800
+ed tbinfo
+wait 1200
+shotscreen Z:\tmp\t\e15_a.bmp
+ed edittext Новый текст строки
+wait 800
+shotscreen Z:\tmp\t\e15_b.bmp
+quit

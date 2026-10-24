@@ -232,9 +232,22 @@ std::string AssemblePdf(const std::vector<PageOut>& pages) {
 }  // namespace
 
 // Worker: builds the output file in job->out. Never touches the UI.
-bool ExportBuild(const std::string& src, const std::string& pass, const ExportOpts& o, ExportJob* job) {
+bool ExportBuild(const std::string& src0, const std::string& pass, const ExportOpts& o, ExportJob* job) {
   job->out.clear();
-  if (o.mode == 0) { job->out = src; return true; }
+  if (o.mode == 0) { job->out = src0; return true; }
+  std::string srcFit;
+  if (o.paper >= 1 && o.paper <= 3) {          // every page onto A4 first (vector), then flatten / rasterise at the chosen resolution
+    std::lock_guard<std::recursive_mutex> lk(g_pdf);
+    FPDF_DOCUMENT fd = PA.FPDF_LoadMemDocument(src0.data(), (int)src0.size(), pass.empty() ? nullptr : pass.c_str());
+    if (!fd) { job->err = L"Не удалось открыть документ"; return false; }
+    FitOpts fo;
+    fo.paper = 0; fo.orient = o.paper == 1 ? 0 : o.paper == 2 ? 1 : 2; fo.marginMm = 0; fo.enlarge = true;
+    FitDocumentPages(fd, fo);
+    bool ok = SerializeHandle(fd, &srcFit);
+    PA.FPDF_CloseDocument(fd);
+    if (!ok) { job->err = L"Не удалось подогнать страницы под A4"; return false; }
+  }
+  const std::string& src = srcFit.empty() ? src0 : srcFit;
   size_t limit = o.maxMB > 0 ? (size_t)o.maxMB * 1024 * 1024 : 0;
   if (o.mode == 1) {
     std::lock_guard<std::recursive_mutex> lk(g_pdf);

@@ -1,0 +1,40 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\obj.pdf
+wait 2500
+ed mode 2
+cmd fitp
+wait 600
+ed tool select
+ed drag 0 40 500 560 670
+ed selinfo
+wait 400
+shot Z:\tmp\t\e13_a.bmp
+ed obj group
+ed selinfo
+ed obj move 30 -20
+ed obj ungroup
+ed selinfo
+ed obj align 0
+ed selinfo
+wait 400
+shot Z:\tmp\t\e13_b.bmp
+ed obj align 3
+ed selinfo
+ed click 0 190 560
+ed selinfo
+ed obj rot 30
+ed selinfo
+ed obj opac 50
+wait 400
+shot Z:\tmp\t\e13_c.bmp
+ed obj dup
+ed selinfo
+wait 400
+shot Z:\tmp\t\e13_d.bmp
+ed rotdrag 20
+ed selinfo
+wait 400
+shot Z:\tmp\t\e13_e.bmp
+ed dump 0
+ed save Z:\tmp\t\e13_out.pdf
+quit

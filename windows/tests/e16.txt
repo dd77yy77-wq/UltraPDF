@@ -1,0 +1,21 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sizes.pdf
+wait 2500
+ed mode 2
+ed fit 0
+wait 800
+cmd fitp
+wait 500
+shot Z:\tmp\t\e16_a.bmp
+ed save Z:\tmp\t\e16_out.pdf
+wait 800
+ed undo
+wait 500
+ed save Z:\tmp\t\e16_undo.pdf
+wait 800
+ed fit 1
+ed fitopt 0 10
+ed fit 2
+wait 600
+ed save Z:\tmp\t\e16_out2.pdf
+wait 800

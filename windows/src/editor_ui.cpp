@@ -7,16 +7,23 @@
 
 // ------------------------------------------------------------------ state
 enum Tool { ET_SELECT, ET_HILITE, ET_UNDER, ET_STRIKE, ET_SQUIG, ET_TEXT, ET_INK, ET_RECT, ET_ELLIPSE };
-enum Gest { G_NONE, G_MOVE, G_RESIZE, G_SHAPE, G_INK };
+enum Gest { G_NONE, G_MOVE, G_RESIZE, G_SHAPE, G_INK, G_MARQUEE, G_ROTATE };
 
 static int g_tool = ET_SELECT;
 static COLORREF g_colHi = RGB(255, 235, 59), g_colLine = RGB(229, 57, 53), g_colText = RGB(0, 0, 0);
-static int g_lineW = 2, g_fontSize = 14;
+static int g_lineW = 2, g_fontSize = 14, g_fontStyle = 0;
 static ws g_font = L"Arial";
 
-static ESel g_sel;                  // selected editor object
+// the selection: items of one page (editor objects, existing page objects, shapes and drawings)
+static ESet g_set;
+static std::vector<FRect> g_itemBox;
 static FRect g_selBox;
-static int g_selKind = 0;           // EK_* for page-object selections
+static int g_selKind = 0;           // EK_* when all selected items are page objects of one kind
+static bool g_selText = false;      // everything selected is text
+static bool g_selHasText = false;   // there is some text in the selection
+static bool g_selObjs = false;      // there are page objects (not only shapes / drawings)
+static bool g_selAnnots = false;    // there are shapes / drawings / markup
+static int g_selAngle = 0;
 static HBITMAP g_preview = nullptr; static int g_prevW = 0, g_prevH = 0;
 
 static Gest g_g = G_NONE;
@@ -24,9 +31,16 @@ static int g_gPage = 0, g_gHandle = -1;
 static FRect g_gBox0, g_gBox;
 static float g_gx0 = 0, g_gy0 = 0;
 static POINT g_gDown = {0, 0};
-static bool g_gMoved = false;
+static bool g_gMoved = false, g_gCopy = false, g_gAdd = false;
+static double g_rotDeg = 0;
 static std::vector<PointF> g_ink;
-static ESel g_ctxSel;
+static ESet g_ctxSet;
+static int g_clipTab = -1, g_clipPage = -1, g_pasteN = 0;
+static int g_testMods = -1;         // scripted tests: bit 0 Shift, bit 1 Ctrl, bit 2 Alt
+static bool ModDown(int vk) {
+  if (g_testMods >= 0) return (vk == VK_SHIFT && (g_testMods & 1)) || (vk == VK_CONTROL && (g_testMods & 2)) || (vk == VK_MENU && (g_testMods & 4));
+  return GetKeyState(vk) < 0;
+}
 
 struct PalEnt { const wchar_t* name; COLORREF c; };
 static const PalEnt kPal[] = {
@@ -37,38 +51,77 @@ static const int kLineW[] = {1, 2, 3, 5, 8};
 static const int kFontSz[] = {8, 10, 12, 14, 16, 18, 24, 36, 48};
 
 static bool IsMarkupTool(int t) { return t >= ET_HILITE && t <= ET_SQUIG; }
+static const ESel* One() { return g_set.size() == 1 ? &g_set[0] : nullptr; }
+static int SelPage() { return g_set.empty() ? -1 : g_set[0].page; }
 
 // the colour the colour button edits right now
 static COLORREF* ActiveColor() {
-  if (g_sel.kind == 1 && g_selKind == EK_TEXT) return &g_colText;
-  if (g_sel.kind == 2 && g_sel.sub == FPDF_ANNOT_HIGHLIGHT) return &g_colHi;
-  if (g_sel.kind == 0) {
+  if (g_selText) return &g_colText;
+  const ESel* o = One();
+  if (o && o->kind == 2 && o->sub == FPDF_ANNOT_HIGHLIGHT) return &g_colHi;
+  if (g_set.empty()) {
     if (g_tool == ET_HILITE) return &g_colHi;
     if (g_tool == ET_TEXT) return &g_colText;
   }
   return &g_colLine;
 }
 static bool SizeIsFont() {
-  if (g_sel.kind == 1 && g_selKind == EK_TEXT) return true;
-  return g_sel.kind == 0 && g_tool == ET_TEXT;
+  if (g_selText) return true;
+  return g_set.empty() && g_tool == ET_TEXT;
 }
 
 static void Redraw() { ViewInvalidate(); InvalidateRect(A_.main, nullptr, FALSE); }
 
 static void FreePreview() { if (g_preview) { DeleteObject(g_preview); g_preview = nullptr; } }
-static void ClearSel() { g_sel = ESel(); g_selKind = 0; FreePreview(); }
-static void SetSel(const ESel& s) {
-  Tab* t = CurTab();
-  g_sel = s;
-  g_selKind = 0;
+static void ClearSel() {
+  g_set.clear(); g_itemBox.clear();
+  g_selKind = 0; g_selText = g_selHasText = g_selObjs = g_selAnnots = false; g_selAngle = 0;
   FreePreview();
-  if (!t || !EdSelBox(t, s, &g_selBox)) { g_sel = ESel(); return; }
-  if (s.kind == 1) g_selKind = EdSelObjKind(t, s);
 }
-static void RefreshSel() {
-  if (g_sel.kind == 0) return;
+static void SetSet(const ESet& s) {
   Tab* t = CurTab();
-  if (!t || !EdSelBox(t, g_sel, &g_selBox)) ClearSel();
+  ClearSel();
+  if (!t || !t->doc) return;
+  ESet keep;
+  for (auto& it : s) {
+    FRect b;
+    if (EdSelBox(t, it, &b)) { keep.push_back(it); g_itemBox.push_back(b); }
+  }
+  if (keep.empty()) { g_itemBox.clear(); return; }
+  g_set = keep;
+  g_selBox = g_itemBox[0];
+  for (auto& b : g_itemBox) {
+    g_selBox.l = min(g_selBox.l, b.l); g_selBox.t = min(g_selBox.t, b.t);
+    g_selBox.r = max(g_selBox.r, b.r); g_selBox.b = max(g_selBox.b, b.b);
+  }
+  int common = -1, texts = 0;
+  for (auto& it : g_set) {
+    if (it.kind == 2) { g_selAnnots = true; common = 0; continue; }
+    g_selObjs = true;
+    int k = EdSelObjKind(t, it);
+    if (k == EK_TEXT) texts++;
+    if (common == -1) common = k; else if (common != k) common = 0;
+  }
+  g_selKind = common < 0 ? 0 : common;
+  g_selHasText = texts > 0;
+  g_selText = texts == (int)g_set.size();
+  if (g_selObjs) g_selAngle = EdSetAngle(t, g_set);
+}
+static void SetSel(const ESel& s) { ESet v{s}; SetSet(v); }
+static void RefreshSel() {
+  if (g_set.empty()) return;
+  ESet keep = g_set;
+  SetSet(keep);
+}
+static bool SameItem(const ESel& a, const ESel& b) {
+  if (a.page != b.page || a.kind != b.kind) return false;
+  if (a.kind == 1) return a.grp == b.grp;
+  if (a.kind == 2) return a.annot == b.annot;
+  return a.obj == b.obj;
+}
+static bool InSet(const ESel& s) {
+  for (auto& it : g_set) if (SameItem(it, s)) return true;
+  return false;
 }
 
 // ------------------------------------------------------------------ text box
@@ -76,6 +129,11 @@ static HWND g_te = nullptr;
 static HFONT g_teFont = nullptr;
 static int g_tbTab = 0, g_tbPage = 0;
 static float g_tbX = 0, g_tbY = 0;
+static bool g_tbEdit = false;                       // editing text that exists already
+static ESet g_tbSet;
+static ws g_tbOrig, g_tbFamily = L"Arial";
+static int g_tbStyle = 0, g_tbSize = 14;
+static COLORREF g_tbColor = 0;
 
 static void TextBoxResize() {
   if (!g_te) return;
@@ -128,12 +186,20 @@ static void TextBoxClose(bool commit) {
   DestroyWindow(te);
   if (g_teFont) { DeleteObject(g_teFont); g_teFont = nullptr; }
   Tab* t = TabById(g_tbTab);
+  bool edit = g_tbEdit;
+  g_tbEdit = false;
   if (commit && t && t->doc) {
     bool any = false;
     for (wchar_t c : text) if (c != L' ' && c != L'\r' && c != L'\n' && c != L'\t') any = true;
-    if (any) {
+    if (edit) {
+      if (text != g_tbOrig) {
+        ESet s = g_tbSet;
+        ClearSel();
+        if (EdReplaceText(t, s, text, g_tbFamily, g_tbStyle, g_tbSize, g_tbColor)) SetSet(s);
+      }
+    } else if (any) {
       ESel s;
-      if (EdAddText(t, g_tbPage, g_tbX, g_tbY, text, g_font, g_fontSize, g_colText, &s)) { g_tool = ET_SELECT; SetSel(s); }
+      if (EdAddText(t, g_tbPage, g_tbX, g_tbY, text, g_font, g_fontSize, g_colText, &s, g_fontStyle)) { g_tool = ET_SELECT; SetSel(s); }
     }
   }
   if (A_.view) SetFocus(A_.view);
@@ -145,7 +211,7 @@ static LRESULT CALLBACK TextSub(HWND hw, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
   switch (msg) {
     case WM_KEYDOWN:
       if (wp == VK_ESCAPE) { TextBoxClose(false); return 0; }
-      if (wp == VK_RETURN && GetKeyState(VK_CONTROL) < 0) { TextBoxClose(true); return 0; }
+      if (wp == VK_RETURN && ModDown(VK_CONTROL)) { TextBoxClose(true); return 0; }
       break;
     case WM_KILLFOCUS: {
       auto* f = new std::function<void()>([hw]() { if (g_te == hw && GetFocus() != hw) TextBoxClose(true); });
@@ -159,30 +225,57 @@ static LRESULT CALLBACK TextSub(HWND hw, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
   return r;
 }
 
-static void TextBoxOpen(Tab* t, int page, float x, float y) {
+// a text box at (x, y) of the page: new text, or (editing) the text that is there now
+static void TextBoxOpenAt(Tab* t, int page, float x, float y, const ws& init, const ws& family, int style, int size, COLORREF col, const ESet* editing, float minW) {
   if (g_te) TextBoxClose(true);
   g_tbTab = t->id; g_tbPage = page; g_tbX = x; g_tbY = y;
+  g_tbEdit = editing != nullptr;
+  if (editing) g_tbSet = *editing;
+  g_tbOrig = init; g_tbFamily = family; g_tbStyle = style; g_tbSize = size; g_tbColor = col;
   int sx, sy;
   ViewPointToScreen(t, page, x, y, &sx, &sy);
-  int px = max(9, (int)lround(g_fontSize * t->scale));
-  g_teFont = CreateFontW(-px, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                         DEFAULT_PITCH | FF_DONTCARE, g_font.c_str());
+  int px = max(9, (int)lround(size * t->scale));
+  g_teFont = CreateFontW(-px, 0, 0, 0, (style & 1) ? FW_BOLD : FW_NORMAL, (style & 2) ? 1 : 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
   // a pop-up owned by the main window: the page view may present through a swap chain that would hide a child window
   POINT sp = {sx - 3, sy - 2};
   ClientToScreen(A_.view, &sp);
+  int wmin = max(S(120), (int)lround(minW * t->scale) + S(26));
+  // created wide, so that the text is not wrapped while it is put in; TextBoxResize then fits the box to the text
   g_te = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDIT", L"", WS_POPUP | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | ES_NOHIDESEL,
-                         sp.x, sp.y, S(120), px + S(10), A_.main, nullptr, A_.inst, nullptr);
+                         sp.x, sp.y, S(1400), px + S(10), A_.main, nullptr, A_.inst, nullptr);
   SendMessageW(g_te, WM_SETFONT, (WPARAM)g_teFont, TRUE);
+  if (!init.empty()) SetWindowTextW(g_te, init.c_str());
   SetWindowSubclass(g_te, TextSub, 77, 0);
   SetFocus(g_te);
+  SendMessageW(g_te, EM_SETSEL, (WPARAM)init.size(), (LPARAM)init.size());
   TextBoxResize();
+  RECT cur;
+  GetWindowRect(g_te, &cur);
+  if (cur.right - cur.left < wmin) SetWindowPos(g_te, nullptr, 0, 0, wmin, cur.bottom - cur.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+static void TextBoxOpen(Tab* t, int page, float x, float y) {
+  TextBoxOpenAt(t, page, x, y, L"", g_font, g_fontStyle, g_fontSize, g_colText, nullptr, 0);
+}
+// opens the text under the selection for editing
+static bool StartTextEdit() {
+  Tab* t = CurTab();
+  if (!t || !t->doc || g_set.empty() || !g_selHasText) return false;
+  EdTextInfo ti;
+  if (!EdGetText(t, g_set, &ti)) return false;
+  ESet s = g_set;
+  int page = SelPage();
+  TextBoxOpenAt(t, page, ti.box.l, ti.box.t, ti.text, ti.family, ti.style, ti.size, ti.color, &s, ti.box.r - ti.box.l);
+  Redraw();
+  return true;
 }
 
 LRESULT EdCtlColor(HDC dc, HWND ctl) {
   static HBRUSH br = nullptr;
   if (!br) br = CreateSolidBrush(RGB(255, 255, 255));
   if (ctl == g_te) {
-    SetTextColor(dc, g_colText == RGB(255, 255, 255) ? RGB(0, 0, 0) : g_colText);
+    COLORREF c = g_tbColor;
+    SetTextColor(dc, c == RGB(255, 255, 255) ? RGB(0, 0, 0) : c);
     SetBkColor(dc, RGB(255, 255, 255));
     return (LRESULT)br;
   }
@@ -241,6 +334,9 @@ void EdBarLayout(RECT bar) {
   AddB(x, y, ID_ED_BACK, IC_TOBACK, L"На задний план");
   AddB(x, y, ID_ED_DELETE, IC_TRASH, L"Удалить выбранное (Del)");
   gap();
+  AddB(x, y, ID_ED_OBJECT, IC_OBJECT, L"Объект: копировать, группировать, выровнять, повернуть, прозрачность");
+  AddB(x, y, ID_ED_EDITTEXT, IC_TXTEDIT, L"Править текст (F2 или двойной щелчок)");
+  gap();
   AddB(x, y, ID_ED_PAGES, IC_PAGES, L"Страницы: повернуть, удалить, переставить, вставить, разделить");
 }
 
@@ -261,8 +357,9 @@ static void BtnState(const EdBtn& b, bool* en, bool* chk) {
     case ID_ED_T_INK: *chk = g_tool == ET_INK; break;
     case ID_ED_T_RECT: *chk = g_tool == ET_RECT; break;
     case ID_ED_T_ELLIPSE: *chk = g_tool == ET_ELLIPSE; break;
-    case ID_ED_FRONT: case ID_ED_FWD: case ID_ED_BWD: case ID_ED_BACK: *en = g_sel.kind == 1; break;
-    case ID_ED_DELETE: *en = g_sel.kind != 0; break;
+    case ID_ED_FRONT: case ID_ED_FWD: case ID_ED_BWD: case ID_ED_BACK: *en = g_selObjs; break;
+    case ID_ED_DELETE: *en = !g_set.empty(); break;
+    case ID_ED_EDITTEXT: *en = g_selHasText; break;
   }
 }
 
@@ -293,7 +390,7 @@ void EdBarPaint(HDC dc, RECT bar) {
       FrameRoundRect(dc, sw, S(4), T.dark ? RGB(200, 200, 200) : RGB(90, 90, 90), 1.2f);
     } else if (e.kind == 2) {
       ws lab = SizeIsFont() ? FmtT(L"%d", g_fontSize) : FmtT(L"%d pt", g_lineW);
-      if (g_sel.kind == 1 && g_selKind == EK_TEXT) { int s = EdSelTextSize(CurTab(), g_sel); if (s > 0) lab = FmtT(L"%d", s); }
+      if (g_selText && !g_set.empty()) { int s = EdSelTextSize(CurTab(), g_set[0]); if (s > 0) lab = FmtT(L"%d", s); }
       DrawTextW2(dc, lab, e.r, c, UiFont(S(13)), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
       FRect cr = {(float)e.r.right - S(14), (float)e.r.top + S(14), (float)e.r.right - S(6), (float)e.r.bottom - S(14)};
       DrawIcon(dc, IC_CHEVD, cr, T.dim, 1.3f);
@@ -383,11 +480,10 @@ static HBITMAP SwatchBmp(COLORREF c, int sz) {
 
 static void ApplyColorToSel(COLORREF c) {
   Tab* t = CurTab();
-  if (!t || g_sel.kind == 0) return;
-  ESel s = g_sel;
-  if (EdSetColorSel(t, s, c)) SetSel(s);
+  if (!t || g_set.empty()) return;
+  ESet s = g_set;
+  if (EdSetColorSet(t, s, c)) SetSet(s);
 }
-
 static void ShowColorMenu() {
   HMENU m = CreatePopupMenu();
   std::vector<HBITMAP> bms;
@@ -414,19 +510,44 @@ static void ShowColorMenu() {
   }
 }
 
+// style and face of the text that the size / font menu works on
+static void CurrentFace(ws* family, int* style) {
+  *family = g_font; *style = g_fontStyle;
+  Tab* t = CurTab();
+  EdTextInfo ti;
+  if (g_selText && t && EdGetText(t, g_set, &ti)) { *family = ti.family; *style = ti.style; }
+}
+static void ApplyFace(const ws& family, int style) {
+  Tab* t = CurTab();
+  if (g_selText && t) {
+    ESet s = g_set;
+    ClearSel();
+    if (EdSetTextStyle(t, s, family, style)) SetSet(s);
+    else SetSet(s);
+  } else { g_font = family; g_fontStyle = style; }
+  Redraw();
+}
+
 static void ShowSizeMenu() {
   HMENU m = CreatePopupMenu();
   bool font = SizeIsFont();
   HMENU fm = nullptr;
+  ws curFam;
+  int curStyle = 0;
+  CurrentFace(&curFam, &curStyle);
+  int curSize = g_fontSize;
+  if (g_selText && !g_set.empty()) { int s = EdSelTextSize(CurTab(), g_set[0]); if (s > 0) curSize = s; }
   if (font) {
     for (int i = 0; i < (int)(sizeof(kFontSz) / sizeof(kFontSz[0])); i++)
-      AppendMenuW(m, MF_STRING | (kFontSz[i] == g_fontSize ? MF_CHECKED : 0), ID_ED_MENU_SIZE + i, FmtT(L"%d pt", kFontSz[i]).c_str());
+      AppendMenuW(m, MF_STRING | (kFontSz[i] == curSize ? MF_CHECKED : 0), ID_ED_MENU_SIZE + i, FmtT(L"%d pt", kFontSz[i]).c_str());
     AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
     fm = CreatePopupMenu();
     std::vector<ws> fonts = EdAvailableFonts();
     for (size_t i = 0; i < fonts.size() && i < 8; i++)
-      AppendMenuW(fm, MF_STRING | (fonts[i] == g_font ? MF_CHECKED : 0), ID_ED_MENU_FONT + (UINT)i, fonts[i].c_str());
+      AppendMenuW(fm, MF_STRING | (fonts[i] == curFam ? MF_CHECKED : 0), ID_ED_MENU_FONT + (UINT)i, fonts[i].c_str());
     AppendMenuW(m, MF_POPUP, (UINT_PTR)fm, L"Шрифт");
+    AppendMenuW(m, MF_STRING | ((curStyle & 1) ? MF_CHECKED : 0), ID_ED_OB_BOLD, L"Жирный\tCtrl+B");
+    AppendMenuW(m, MF_STRING | ((curStyle & 2) ? MF_CHECKED : 0), ID_ED_OB_ITALIC, L"Курсив\tCtrl+I");
   } else {
     for (int i = 0; i < (int)(sizeof(kLineW) / sizeof(kLineW[0])); i++)
       AppendMenuW(m, MF_STRING | (kLineW[i] == g_lineW ? MF_CHECKED : 0), ID_ED_MENU_SIZE + i, FmtT(L"%d pt", kLineW[i]).c_str());
@@ -438,15 +559,15 @@ static void ShowSizeMenu() {
     int i = cmd - ID_ED_MENU_SIZE;
     if (font) {
       g_fontSize = kFontSz[i];
-      if (t && g_sel.kind == 1 && g_selKind == EK_TEXT) { ESel s = g_sel; if (EdSetTextSize(t, s, g_fontSize)) SetSel(s); }
+      if (t && g_selText) { ESet s = g_set; if (EdSetTextSizeSet(t, s, g_fontSize)) SetSet(s); }
     } else g_lineW = kLineW[i];
     Redraw();
   } else if (cmd >= ID_ED_MENU_FONT && cmd < ID_ED_MENU_FONT + 8) {
     std::vector<ws> fonts = EdAvailableFonts();
     int i = cmd - ID_ED_MENU_FONT;
-    if (i < (int)fonts.size()) g_font = fonts[i];
-    Redraw();
-  }
+    if (i < (int)fonts.size()) ApplyFace(fonts[i], curStyle);
+  } else if (cmd == ID_ED_OB_BOLD) ApplyFace(curFam, curStyle ^ 1);
+  else if (cmd == ID_ED_OB_ITALIC) ApplyFace(curFam, curStyle ^ 2);
 }
 
 // --- pictures (signature, stamp)
@@ -626,10 +747,29 @@ static ws UniquePath(const ws& dir, const ws& stem) {
   return p;
 }
 
+// fit all pages to a paper size
+static bool g_fitEnlarge = true;
+static int g_fitMargin = 0;                         // mm
+struct FitItem { const wchar_t* name; int paper, orient; };
+static const FitItem kFit[] = {
+    {L"A4 (книжная или альбомная — как у страницы)", 0, 0}, {L"A4 книжная", 0, 1}, {L"A4 альбомная", 0, 2},
+    {L"A3 (как у страницы)", 1, 0}, {L"A5 (как у страницы)", 2, 0}, {L"Letter (как у страницы)", 3, 0}, {L"Legal (как у страницы)", 4, 0}};
+
 static void PageCommand(int cmd) {
   Tab* t = CurTab();
   if (!t || !t->doc) return;
   int cur = ViewCurPage(), n = t->doc->npages;
+  if (cmd >= ID_ED_PG_FIT && cmd < ID_ED_PG_FIT + (int)(sizeof(kFit) / sizeof(kFit[0]))) {
+    FitOpts fo;
+    fo.paper = kFit[cmd - ID_ED_PG_FIT].paper; fo.orient = kFit[cmd - ID_ED_PG_FIT].orient;
+    fo.marginMm = (float)g_fitMargin; fo.enlarge = g_fitEnlarge;
+    int changed = 0;
+    if (EdFitPages(t, fo, &changed)) ShowToast(FmtT(L"Приведено страниц: %d", changed));
+    return;
+  }
+  if (cmd == ID_ED_PG_FITOPT) { g_fitEnlarge = !g_fitEnlarge; return; }
+  if (cmd == ID_ED_PG_FITMARGIN) { g_fitMargin = g_fitMargin ? 0 : 10; return; }
+  if (cmd == ID_ED_PG_FITSAVE) { EdSaveAs(t, true); return; }
   switch (cmd) {
     case ID_ED_PG_ROTCW: EdRotatePage(t, cur, 1); break;
     case ID_ED_PG_ROTCCW: EdRotatePage(t, cur, -1); break;
@@ -714,9 +854,184 @@ static void ShowPagesMenu() {
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(m, MF_STRING, ID_ED_PG_EXTRACT, L"Извлечь страницы в новый файл…");
   AppendMenuW(m, MF_STRING | (n > 1 ? 0 : MF_GRAYED), ID_ED_PG_SPLIT, L"Разделить документ на файлы…");
+  AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  HMENU fm = CreatePopupMenu();
+  for (int i = 0; i < (int)(sizeof(kFit) / sizeof(kFit[0])); i++) AppendMenuW(fm, MF_STRING, ID_ED_PG_FIT + i, kFit[i].name);
+  AppendMenuW(fm, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(fm, MF_STRING | (g_fitEnlarge ? MF_CHECKED : 0), ID_ED_PG_FITOPT, L"Увеличивать маленькие страницы");
+  AppendMenuW(fm, MF_STRING | (g_fitMargin ? MF_CHECKED : 0), ID_ED_PG_FITMARGIN, L"Поля 10 мм");
+  AppendMenuW(m, MF_POPUP, (UINT_PTR)fm, L"Привести все страницы к одному формату");
+  AppendMenuW(m, MF_STRING, ID_ED_PG_FITSAVE, L"Сохранить копию: все страницы A4 с нужным разрешением…");
   int cmd = PopupBelow(m, ID_ED_PAGES);
   DestroyMenu(m);
   if (cmd) PageCommand(cmd);
+}
+
+// ------------------------------------------------------------------ objects: copy, paste, group, align, turn, transparency
+static bool PngClsid(CLSID* c) {
+  UINT n = 0, sz = 0;
+  Gdiplus::GetImageEncodersSize(&n, &sz);
+  if (!sz) return false;
+  std::vector<char> buf(sz);
+  auto* ie = (Gdiplus::ImageCodecInfo*)buf.data();
+  Gdiplus::GetImageEncoders(n, sz, ie);
+  for (UINT i = 0; i < n; i++) if (wcscmp(ie[i].MimeType, L"image/png") == 0) { *c = ie[i].Clsid; return true; }
+  return false;
+}
+static bool ClipboardHasImage() { return IsClipboardFormatAvailable(CF_BITMAP) || IsClipboardFormatAvailable(CF_DIB); }
+// a picture from the system clipboard (a screenshot, a copy from another program) goes onto the page like a stamp
+static void PasteSystemImage() {
+  if (!ClipboardHasImage()) { ShowToast(L"В буфере обмена нет объектов для вставки"); return; }
+  if (!OpenClipboard(A_.main)) return;
+  ws file;
+  HBITMAP hb = (HBITMAP)GetClipboardData(CF_BITMAP);
+  if (hb) {
+    Gdiplus::Bitmap bmp(hb, nullptr);
+    CLSID png;
+    wchar_t tmp[MAX_PATH];
+    if (bmp.GetLastStatus() == Gdiplus::Ok && PngClsid(&png) && GetTempPathW(MAX_PATH, tmp)) {
+      ws f = ws(tmp) + L"UltraPDF-paste.png";
+      if (bmp.Save(f.c_str(), &png, nullptr) == Gdiplus::Ok) file = f;
+    }
+  }
+  CloseClipboard();
+  if (!file.empty()) InsertPicture(file);
+}
+
+static bool DoCopy(bool cut, bool quiet = false) {
+  Tab* t = CurTab();
+  if (!t || !t->doc || g_set.empty()) return false;
+  if (!EdCopy(t, g_set)) return false;
+  g_clipTab = t->id; g_clipPage = SelPage(); g_pasteN = 0;
+  if (cut) { ESet s = g_set; ClearSel(); EdDeleteSet(t, s); }
+  else if (!quiet) ShowToast(L"Скопировано");
+  return true;
+}
+static void DoPaste(bool duplicate) {
+  Tab* t = CurTab();
+  if (!t || !t->doc) return;
+  if (!EdClipHas()) { PasteSystemImage(); return; }
+  int page = !g_set.empty() ? SelPage() : ViewCurPage();
+  page = min(max(page, 0), t->doc->npages - 1);
+  float d = 0;
+  if (duplicate || (t->id == g_clipTab && page == g_clipPage)) d = 12.0f * (float)(++g_pasteN);
+  ESet res;
+  ClearSel();
+  if (EdPaste(t, page, d, d, &res)) { g_tool = ET_SELECT; SetSet(res); }
+}
+static void DoDuplicate() {
+  if (g_set.empty()) return;
+  int page = SelPage();
+  if (!DoCopy(false, true)) return;
+  Tab* t = CurTab();
+  (void)page;
+  g_pasteN = 0;
+  float d = 12.0f * (float)(++g_pasteN);
+  ESet res;
+  ClearSel();
+  if (EdPaste(t, g_clipPage, d, d, &res)) SetSet(res);
+}
+static void SelectAllOnPage() {
+  Tab* t = CurTab();
+  if (!t || !t->doc) return;
+  int page = !g_set.empty() ? SelPage() : ViewCurPage();
+  page = min(max(page, 0), t->doc->npages - 1);
+  ESet res;
+  if (EdMarquee(t, page, FRect{-1, -1, t->doc->pw[page] + 1, t->doc->ph[page] + 1}, &res)) SetSet(res);
+  else ClearSel();
+}
+static void RotateSel(double deg) {
+  Tab* t = CurTab();
+  if (!t || g_set.empty()) return;
+  ESet s = g_set;
+  if (EdRotateSet(t, s, deg)) SetSet(s);
+}
+
+static void ObjCommand(int id) {
+  Tab* t = CurTab();
+  if (!t || !t->doc) return;
+  switch (id) {
+    case ID_ED_OB_COPY: DoCopy(false); break;
+    case ID_ED_OB_CUT: DoCopy(true); break;
+    case ID_ED_OB_PASTE: DoPaste(false); break;
+    case ID_ED_OB_DUP: DoDuplicate(); break;
+    case ID_ED_OB_SELALL: SelectAllOnPage(); break;
+    case ID_ED_OB_EDITTEXT: StartTextEdit(); break;
+    case ID_ED_OB_GROUP: { ESet s = g_set; if (EdGroup(t, s)) SetSet(s); break; }
+    case ID_ED_OB_UNGROUP: { ESet s = g_set; if (EdUngroup(t, s)) SetSet(s); break; }
+    case ID_ED_OB_ROT_CW: RotateSel(90); break;
+    case ID_ED_OB_ROT_CCW: RotateSel(-90); break;
+    case ID_ED_OB_ROT_180: RotateSel(180); break;
+    case ID_ED_OB_ROT_ANY: {
+      ws in;
+      if (!InputText(A_.main, L"Повернуть", L"На сколько градусов повернуть по часовой стрелке? Например 15 или -30.", L"15", &in)) break;
+      double v = wcstod(in.c_str(), nullptr);
+      if (fabs(v) > 0.01) RotateSel(v);
+      break;
+    }
+    case ID_ED_OB_BOLD: case ID_ED_OB_ITALIC: {
+      if (!g_selText) break;
+      ws fam; int st;
+      CurrentFace(&fam, &st);
+      ApplyFace(fam, st ^ (id == ID_ED_OB_BOLD ? 1 : 2));
+      break;
+    }
+    default:
+      if (id >= ID_ED_OB_AL_LEFT && id <= ID_ED_OB_DIST_V) {
+        ESet s = g_set;
+        if (EdAlign(t, s, id - ID_ED_OB_AL_LEFT)) SetSet(s);
+        else if (id >= ID_ED_OB_DIST_V - 1 && s.size() < 3) ShowToast(L"Для распределения нужно выделить не меньше трёх объектов");
+      } else if (id >= ID_ED_OB_OPAC && id <= ID_ED_OB_OPAC + 4) {
+        static const int pct[] = {100, 75, 50, 25};
+        int v;
+        if (id - ID_ED_OB_OPAC < 4) v = pct[id - ID_ED_OB_OPAC];
+        else {
+          ws in;
+          if (!InputText(A_.main, L"Прозрачность", L"Непрозрачность в процентах: 100 — обычный цвет, 50 — наполовину прозрачный, 0 — невидимый.", std::to_wstring(EdSetOpacityOf(t, g_set)), &in)) break;
+          v = _wtoi(in.c_str());
+        }
+        ESet s = g_set;
+        if (EdSetOpacity(t, s, v)) SetSet(s);
+      }
+  }
+}
+
+static void ShowObjectMenu() {
+  Tab* t = CurTab();
+  bool has = !g_set.empty(), multi = g_set.size() >= 2;
+  auto en = [](bool b) { return (UINT)(b ? 0 : MF_GRAYED); };
+  HMENU m = CreatePopupMenu(), al = CreatePopupMenu(), ro = CreatePopupMenu(), op = CreatePopupMenu();
+  AppendMenuW(m, MF_STRING | en(g_selHasText), ID_ED_OB_EDITTEXT, L"Править текст\tF2");
+  AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(m, MF_STRING | en(has), ID_ED_OB_COPY, L"Копировать\tCtrl+C");
+  AppendMenuW(m, MF_STRING | en(has), ID_ED_OB_CUT, L"Вырезать\tCtrl+X");
+  AppendMenuW(m, MF_STRING | en(EdClipHas() || ClipboardHasImage()), ID_ED_OB_PASTE, L"Вставить\tCtrl+V");
+  AppendMenuW(m, MF_STRING | en(has), ID_ED_OB_DUP, L"Дублировать\tCtrl+D");
+  AppendMenuW(m, MF_STRING, ID_ED_OB_SELALL, L"Выделить всё на странице\tCtrl+A");
+  AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(m, MF_STRING | en(multi && !g_selAnnots), ID_ED_OB_GROUP, L"Сгруппировать\tCtrl+G");
+  AppendMenuW(m, MF_STRING | en(has), ID_ED_OB_UNGROUP, L"Разгруппировать\tCtrl+Shift+G");
+  AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+  static const wchar_t* alNames[] = {L"По левому краю", L"По центру", L"По правому краю", L"По верхнему краю", L"По середине", L"По нижнему краю",
+                                     L"Распределить по горизонтали", L"Распределить по вертикали"};
+  for (int i = 0; i < 8; i++) {
+    if (i == 6) AppendMenuW(al, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(al, MF_STRING | en(has && (i < 6 || g_set.size() >= 3)), ID_ED_OB_AL_LEFT + i, alNames[i]);
+  }
+  AppendMenuW(m, MF_POPUP | en(has), (UINT_PTR)al, g_set.size() == 1 ? L"Выровнять по странице" : L"Выровнять");
+  AppendMenuW(ro, MF_STRING, ID_ED_OB_ROT_CW, L"На 90° по часовой");
+  AppendMenuW(ro, MF_STRING, ID_ED_OB_ROT_CCW, L"На 90° против часовой");
+  AppendMenuW(ro, MF_STRING, ID_ED_OB_ROT_180, L"На 180°");
+  AppendMenuW(ro, MF_STRING, ID_ED_OB_ROT_ANY, L"На угол…");
+  AppendMenuW(m, MF_POPUP | en(g_selObjs), (UINT_PTR)ro, L"Повернуть");
+  int cur = g_selObjs && t ? EdSetOpacityOf(t, g_set) : 100;
+  static const int pct[] = {100, 75, 50, 25};
+  for (int i = 0; i < 4; i++) AppendMenuW(op, MF_STRING | (cur == pct[i] ? MF_CHECKED : 0), ID_ED_OB_OPAC + i, FmtT(L"%d %%", pct[i]).c_str());
+  AppendMenuW(op, MF_STRING, ID_ED_OB_OPAC + 4, L"Другая…");
+  AppendMenuW(m, MF_POPUP | en(g_selObjs), (UINT_PTR)op, L"Прозрачность");
+  int cmd = PopupBelow(m, ID_ED_OBJECT);
+  DestroyMenu(m);
+  if (cmd) ObjCommand(cmd);
 }
 
 // ------------------------------------------------------------------ commands
@@ -776,19 +1091,25 @@ void EdCommand(int id) {
     case ID_ED_COLOR: ShowColorMenu(); break;
     case ID_ED_SIZE: ShowSizeMenu(); break;
     case ID_ED_PAGES: ShowPagesMenu(); break;
+    case ID_ED_OBJECT: ShowObjectMenu(); break;
+    case ID_ED_EDITTEXT: StartTextEdit(); break;
     case ID_ED_FRONT: case ID_ED_FWD: case ID_ED_BWD: case ID_ED_BACK:
-      if (g_sel.kind == 1) {
-        ESel s = g_sel;
+      if (g_selObjs) {
+        ESet s = g_set;
         int op = id == ID_ED_FRONT ? 0 : id == ID_ED_FWD ? 1 : id == ID_ED_BWD ? 2 : 3;
-        EdZOrder(t, s, op);
-        SetSel(s);
+        EdZOrderSet(t, s, op);
+        SetSet(s);
       }
       break;
     case ID_ED_DELETE: case ID_ED_CTX_DELETE: {
-      ESel s = id == ID_ED_CTX_DELETE ? g_ctxSel : g_sel;
-      if (s.kind) { ClearSel(); EdDeleteSel(t, s); }
+      ESet s = id == ID_ED_CTX_DELETE ? g_ctxSet : g_set;
+      if (!s.empty()) { ClearSel(); EdDeleteSet(t, s); }
       break;
     }
+    default:
+      if (id >= ID_ED_OB_COPY && id <= ID_ED_OB_ITALIC) ObjCommand(id);
+      else if (id >= ID_ED_PG_FIT && id <= ID_ED_PG_FITSAVE) PageCommand(id);
+      break;
   }
   Redraw();
 }
@@ -798,30 +1119,39 @@ bool EdKey(UINT vk, bool ctrl, bool shift) {
   if (f == g_te || f == A_.pageEdit || f == A_.findEdit) return false;
   Tab* t = CurTab();
   if (!t || !t->doc) return false;
+  bool sel = EdOn() && g_tool == ET_SELECT;
   if (ctrl) {
     switch (vk) {
       case 'S': EdCommand(shift ? ID_ED_SAVEAS_E : ID_ED_SAVE); return true;
       case 'Z': if (!EdOn()) return false; EdCommand(shift ? ID_ED_REDO : ID_ED_UNDO); return true;
       case 'Y': if (!EdOn()) return false; EdCommand(ID_ED_REDO); return true;
       case '1': case '2': case '3': EdSetMode(vk - '1'); return true;
+      case 'C': if (sel && !g_set.empty()) { ObjCommand(ID_ED_OB_COPY); Redraw(); return true; } return false;
+      case 'X': if (sel && !g_set.empty()) { ObjCommand(ID_ED_OB_CUT); Redraw(); return true; } return false;
+      case 'V': if (sel && (EdClipHas() || ClipboardHasImage())) { ObjCommand(ID_ED_OB_PASTE); Redraw(); return true; } return false;
+      case 'D': if (sel && !g_set.empty()) { ObjCommand(ID_ED_OB_DUP); Redraw(); return true; } return false;
+      case 'A': if (sel) { ObjCommand(ID_ED_OB_SELALL); Redraw(); return true; } return false;
+      case 'G': if (sel && !g_set.empty()) { ObjCommand(shift ? ID_ED_OB_UNGROUP : ID_ED_OB_GROUP); Redraw(); return true; } return false;
+      case 'B': case 'I': if (sel && g_selText) { ObjCommand(vk == 'B' ? ID_ED_OB_BOLD : ID_ED_OB_ITALIC); Redraw(); return true; } return false;
     }
     return false;
   }
   if (!EdOn()) return false;
   switch (vk) {
-    case VK_DELETE: if (g_sel.kind) { EdCommand(ID_ED_DELETE); return true; } return false;
+    case VK_F2: case VK_RETURN: if (g_selHasText && g_tool == ET_SELECT) return StartTextEdit(); return false;
+    case VK_DELETE: if (!g_set.empty()) { EdCommand(ID_ED_DELETE); return true; } return false;
     case VK_ESCAPE:
       if (g_g != G_NONE) { g_g = G_NONE; g_ink.clear(); if (GetCapture() == A_.view) ReleaseCapture(); Redraw(); return true; }
-      if (g_sel.kind) { ClearSel(); Redraw(); return true; }
+      if (!g_set.empty()) { ClearSel(); Redraw(); return true; }
       if (g_tool != ET_SELECT) { SetTool(ET_SELECT); return true; }
       return false;
     case VK_LEFT: case VK_RIGHT: case VK_UP: case VK_DOWN:
-      if (g_sel.kind && g_tool == ET_SELECT) {
+      if (!g_set.empty() && g_tool == ET_SELECT) {
         float d = shift ? 10.0f : 1.0f;
         float dx = vk == VK_LEFT ? -d : vk == VK_RIGHT ? d : 0, dy = vk == VK_UP ? -d : vk == VK_DOWN ? d : 0;
         FRect b = g_selBox, nb = {b.l + dx, b.t + dy, b.r + dx, b.b + dy};
-        ESel s = g_sel;
-        if (EdTransformSel(t, s, b, nb)) SetSel(s);
+        ESet s = g_set;
+        if (EdTransformSet(t, s, b, nb)) SetSet(s);
         Redraw();
         return true;
       }
@@ -838,17 +1168,27 @@ static RECT HandleRect(const RECT& box, int h) {
   int y = (h == 0 || h == 1 || h == 2) ? box.top : (h == 4 || h == 5 || h == 6) ? box.bottom : cy;
   return RECT{x - hs / 2, y - hs / 2, x + hs / 2 + 1, y + hs / 2 + 1};
 }
+static bool CanRotate() { return g_selObjs && !g_selAnnots; }
+static RECT RotHandleRect(const RECT& box) {
+  int cx = (box.left + box.right) / 2, y = box.top - S(26), r = S(6);
+  return RECT{cx - r, y - r, cx + r + 1, y + r + 1};
+}
+static bool IsMarkupSub(int sub) { return sub == FPDF_ANNOT_HIGHLIGHT || sub == FPDF_ANNOT_UNDERLINE || sub == FPDF_ANNOT_STRIKEOUT || sub == FPDF_ANNOT_SQUIGGLY; }
 // resizable handles for the current selection
 static bool HandleUsable(int h) {
+  if (g_set.empty()) return false;
   bool corner = h == 0 || h == 2 || h == 4 || h == 6;
-  if (g_sel.kind == 1 && g_selKind == EK_TEXT) return corner;      // text scales evenly
-  if (g_sel.kind == 2 && g_sel.sub == FPDF_ANNOT_INK) return corner;
-  if (g_sel.kind == 2 && (g_sel.sub == FPDF_ANNOT_HIGHLIGHT || g_sel.sub == FPDF_ANNOT_UNDERLINE || g_sel.sub == FPDF_ANNOT_STRIKEOUT || g_sel.sub == FPDF_ANNOT_SQUIGGLY)) return false;
+  bool onlyMarkup = true;
+  for (auto& it : g_set) if (!(it.kind == 2 && IsMarkupSub(it.sub))) onlyMarkup = false;
+  if (onlyMarkup) return false;
+  if (g_selHasText || g_selAngle != 0 || g_set.size() > 1) return corner;      // text scales evenly; a turned picture keeps its shape
+  const ESel* o = One();
+  if (o && o->kind == 2 && o->sub == FPDF_ANNOT_INK) return corner;
   return true;
 }
 static int HandleAt(Tab* t, int mx, int my) {
-  if (g_sel.kind == 0 || g_sel.page < 0) return -1;
-  RECT box = ViewRectToScreen(t, g_sel.page, g_selBox);
+  if (g_set.empty() || SelPage() < 0) return -1;
+  RECT box = ViewRectToScreen(t, SelPage(), g_selBox);
   POINT pt = {mx, my};
   for (int h = 0; h < 8; h++) {
     if (!HandleUsable(h)) continue;
@@ -858,9 +1198,17 @@ static int HandleAt(Tab* t, int mx, int my) {
   }
   return -1;
 }
+static bool RotHandleAt(Tab* t, int mx, int my) {
+  if (!CanRotate() || SelPage() < 0) return false;
+  RECT box = ViewRectToScreen(t, SelPage(), g_selBox);
+  RECT r = RotHandleRect(box);
+  InflateRect(&r, S(3), S(3));
+  POINT pt = {mx, my};
+  return PtInRect(&r, pt) != 0;
+}
 static bool InSelBox(Tab* t, int mx, int my) {
-  if (g_sel.kind == 0) return false;
-  RECT box = ViewRectToScreen(t, g_sel.page, g_selBox);
+  if (g_set.empty()) return false;
+  RECT box = ViewRectToScreen(t, SelPage(), g_selBox);
   InflateRect(&box, S(3), S(3));
   POINT pt = {mx, my};
   return PtInRect(&box, pt) != 0;
@@ -898,8 +1246,18 @@ static FRect ResizeBox(const FRect& b0, int h, float x, float y, bool uniform) {
 
 static void PtrPage(Tab* t, int page, int mx, int my, float* x, float* y) { ViewScreenToPage(t, page, mx, my, x, y); }
 
+static void LoadPreview(Tab* t) {
+  FreePreview();
+  if (g_set.size() == 1 && g_selKind == EK_IMAGE && g_selAngle == 0) g_preview = EdImagePreview(t, g_set, &g_prevW, &g_prevH);
+}
+static void BeginMove(Tab* t, int mx, int my) {
+  g_g = G_MOVE; g_gPage = SelPage(); g_gBox0 = g_selBox; g_gBox = g_selBox;
+  g_gCopy = ModDown(VK_CONTROL);
+  PtrPage(t, g_gPage, mx, my, &g_gx0, &g_gy0);
+  LoadPreview(t);
+}
+
 bool EdMouseDown(Tab* t, int mx, int my, bool dbl) {
-  (void)dbl;
   if (!EdOn()) return false;
   if (!t || !t->doc) return false;
   if (g_te) { TextBoxClose(true); return true; }               // the click that ends the text box does nothing else
@@ -909,27 +1267,58 @@ bool EdMouseDown(Tab* t, int mx, int my, bool dbl) {
   bool onPage = ViewHitPage(t, mx, my, &page, &x, &y, &exact) && exact;
   g_gDown = {mx, my};
   g_gMoved = false;
+  g_gCopy = false;
   if (g_tool == ET_SELECT) {
+    bool shift = ModDown(VK_SHIFT), alt = ModDown(VK_MENU);
+    if (RotHandleAt(t, mx, my)) {
+      g_g = G_ROTATE; g_gPage = SelPage(); g_rotDeg = 0; g_gBox0 = g_selBox; g_gBox = g_selBox;
+      return true;
+    }
     int h = HandleAt(t, mx, my);
     if (h >= 0) {
-      g_g = G_RESIZE; g_gHandle = h; g_gPage = g_sel.page; g_gBox0 = g_selBox; g_gBox = g_selBox;
-      if (g_sel.kind == 1 && g_selKind == EK_IMAGE) { FreePreview(); g_preview = EdImagePreview(t, g_sel, &g_prevW, &g_prevH); }
+      g_g = G_RESIZE; g_gHandle = h; g_gPage = SelPage(); g_gBox0 = g_selBox; g_gBox = g_selBox;
+      LoadPreview(t);
       return true;
     }
     if (onPage) {
       EdHit hit;
-      bool inSel = InSelBox(t, mx, my);
-      if (inSel || EdHitTest(t, page, x, y, false, &hit)) {
-        if (!inSel) SetSel(hit.sel);
-        if (g_sel.kind == 0) return false;
-        g_g = G_MOVE; g_gPage = g_sel.page; g_gBox0 = g_selBox; g_gBox = g_selBox;
-        PtrPage(t, g_gPage, mx, my, &g_gx0, &g_gy0);
-        if (g_sel.kind == 1 && g_selKind == EK_IMAGE) { FreePreview(); g_preview = EdImagePreview(t, g_sel, &g_prevW, &g_prevH); }
+      bool got = EdHitTest(t, page, x, y, false, &hit, alt);
+      if (dbl && got) {
+        // double click on text: the whole line goes into a text box
+        if (hit.sel.kind != 2 && (hit.sel.sub == EK_TEXT || EdSelObjKind(t, hit.sel) == EK_TEXT)) {
+          ESet line;
+          if (hit.sel.kind == 3) EdExpandLine(t, hit.sel, &line); else line.push_back(hit.sel);
+          SetSet(line);
+          StartTextEdit();
+          return true;
+        }
+      }
+      if (shift && got) {
+        // add to / take out of the selection
+        ESet s = g_set;
+        if (!s.empty() && s[0].page != page) s.clear();
+        bool had = false;
+        for (size_t i = 0; i < s.size(); i++) if (SameItem(s[i], hit.sel)) { s.erase(s.begin() + i); had = true; break; }
+        if (!had) s.push_back(hit.sel);
+        SetSet(s);
         Redraw();
         return true;
       }
+      bool inSel = InSelBox(t, mx, my) && (!got || InSet(hit.sel));
+      if (inSel || got) {
+        if (!inSel) SetSel(hit.sel);
+        if (g_set.empty()) return false;
+        BeginMove(t, mx, my);
+        Redraw();
+        return true;
+      }
+      // empty place on the page: a frame to select with
+      if (!shift) { ClearSel(); }
+      g_g = G_MARQUEE; g_gPage = page; g_gx0 = x; g_gy0 = y; g_gBox = {x, y, x, y}; g_gAdd = shift;
+      Redraw();
+      return true;
     }
-    if (g_sel.kind) { ClearSel(); Redraw(); }
+    if (!g_set.empty()) { ClearSel(); Redraw(); }
     return false;
   }
   if (!onPage) return false;
@@ -958,16 +1347,33 @@ bool EdMouseMove(Tab* t, int mx, int my, WPARAM wp) {
     }
     case G_RESIZE: {
       g_gMoved = true;
-      bool uniform = (g_sel.kind == 1 && g_selKind != 0) || GetKeyState(VK_SHIFT) >= 0 ? true : false;
-      if (g_sel.kind == 1 && g_selKind == EK_TEXT) uniform = true;
-      else uniform = GetKeyState(VK_SHIFT) >= 0 && !(g_sel.kind == 2 && g_sel.sub != FPDF_ANNOT_INK);
+      bool uniform = !ModDown(VK_SHIFT);
+      const ESel* o = One();
+      if (g_selHasText || g_selAngle != 0 || g_set.size() > 1) uniform = true;
+      else if (o && o->kind == 2 && o->sub != FPDF_ANNOT_INK) uniform = false;
       g_gBox = ResizeBox(g_gBox0, g_gHandle, x, y, uniform);
+      break;
+    }
+    case G_ROTATE: {
+      double cx = (g_gBox0.l + g_gBox0.r) * 0.5, cy = (g_gBox0.t + g_gBox0.b) * 0.5;
+      double a = atan2((double)y - cy, (double)x - cx) * 180.0 / 3.14159265358979323846 + 90.0;
+      while (a > 180) a -= 360;
+      while (a < -180) a += 360;
+      if (ModDown(VK_SHIFT)) a = floor(a / 15.0 + 0.5) * 15.0;
+      g_rotDeg = a;
+      g_gMoved = fabs(a) > 0.3;
+      break;
+    }
+    case G_MARQUEE: {
+      g_gMoved = true;
+      x = min(max(x, 0.0f), pw); y = min(max(y, 0.0f), ph);
+      g_gBox = {min(g_gx0, x), min(g_gy0, y), max(g_gx0, x), max(g_gy0, y)};
       break;
     }
     case G_SHAPE: {
       x = min(max(x, 0.0f), pw); y = min(max(y, 0.0f), ph);
       g_gBox = {min(g_gx0, x), min(g_gy0, y), max(g_gx0, x), max(g_gy0, y)};
-      if (GetKeyState(VK_SHIFT) < 0) {
+      if (ModDown(VK_SHIFT)) {
         float s = max(g_gBox.r - g_gBox.l, g_gBox.b - g_gBox.t);
         g_gBox.r = g_gBox.l + s; g_gBox.b = g_gBox.t + s;
       }
@@ -992,14 +1398,43 @@ bool EdMouseUp(Tab* t, int mx, int my) {
   if (!t || !t->doc) { g_ink.clear(); return true; }
   switch (g) {
     case G_MOVE: case G_RESIZE:
-      if (g_gMoved && g_sel.kind) {
-        ESel s = g_sel;
+      if (g_gMoved && !g_set.empty()) {
+        ESet s = g_set;
         FRect b0 = g_gBox0, b1 = g_gBox;
         FreePreview();
-        if (EdTransformSel(t, s, b0, b1)) SetSel(s);
+        if (g == G_MOVE && g_gCopy) {
+          // Ctrl + drag: a copy is left where the original was and the original moves... the copy is what moves
+          if (EdCopy(t, s)) {
+            g_clipTab = t->id; g_clipPage = g_gPage; g_pasteN = 0;
+            ESet res;
+            ClearSel();
+            if (EdPaste(t, g_gPage, b1.l - b0.l, b1.t - b0.t, &res)) SetSet(res);
+          }
+        } else if (EdTransformSet(t, s, b0, b1)) SetSet(s);
+        else RefreshSel();
       }
       FreePreview();
       break;
+    case G_ROTATE:
+      if (g_gMoved && !g_set.empty()) {
+        ESet s = g_set;
+        if (EdRotateSet(t, s, g_rotDeg)) SetSet(s);
+      }
+      g_rotDeg = 0;
+      break;
+    case G_MARQUEE: {
+      ESet res;
+      if (g_gBox.r - g_gBox.l >= 3 || g_gBox.b - g_gBox.t >= 3) {
+        EdMarquee(t, g_gPage, g_gBox, &res);
+        if (g_gAdd && !g_set.empty() && SelPage() == g_gPage) {
+          ESet all = g_set;
+          for (auto& it : res) if (!InSet(it)) all.push_back(it);
+          res = all;
+        }
+        SetSet(res);
+      }
+      break;
+    }
     case G_SHAPE:
       if (g_gBox.r - g_gBox.l >= 4 && g_gBox.b - g_gBox.t >= 4) {
         ESel s;
@@ -1022,13 +1457,17 @@ bool EdSetCursor(Tab* t, int mx, int my) {
   if (!t || !t->doc || !t->layoutOk) return false;
   LPCWSTR cur = nullptr;
   if (g_g == G_MOVE) cur = IDC_SIZEALL;
-  else if (g_g == G_RESIZE || (g_g == G_NONE && g_tool == ET_SELECT && g_sel.kind && HandleAt(t, mx, my) >= 0)) {
+  else if (g_g == G_ROTATE) cur = IDC_HAND;
+  else if (g_g == G_MARQUEE) cur = IDC_CROSS;
+  else if (g_g == G_RESIZE || (g_g == G_NONE && g_tool == ET_SELECT && !g_set.empty() && HandleAt(t, mx, my) >= 0)) {
     int h = g_g == G_RESIZE ? g_gHandle : HandleAt(t, mx, my);
     cur = (h == 0 || h == 4) ? IDC_SIZENWSE : (h == 2 || h == 6) ? IDC_SIZENESW : (h == 1 || h == 5) ? IDC_SIZENS : IDC_SIZEWE;
   } else if (g_g == G_SHAPE || g_g == G_INK) cur = IDC_CROSS;
   else if (g_g == G_NONE) {
-    if (g_tool == ET_SELECT) { if (g_sel.kind && InSelBox(t, mx, my)) cur = IDC_SIZEALL; }
-    else if (g_tool == ET_TEXT || g_tool == ET_INK || g_tool == ET_RECT || g_tool == ET_ELLIPSE) {
+    if (g_tool == ET_SELECT) {
+      if (RotHandleAt(t, mx, my)) cur = IDC_HAND;
+      else if (!g_set.empty() && InSelBox(t, mx, my)) cur = IDC_SIZEALL;
+    } else if (g_tool == ET_TEXT || g_tool == ET_INK || g_tool == ET_RECT || g_tool == ET_ELLIPSE) {
       int p; float x, y; bool ex;
       if (ViewHitPage(t, mx, my, &p, &x, &y, &ex) && ex) cur = g_tool == ET_TEXT ? IDC_IBEAM : IDC_CROSS;
     }
@@ -1048,31 +1487,44 @@ void EdAfterTextSelection() {
 }
 
 void EdContextMenu(HMENU m, Tab* t, int mx, int my) {
-  g_ctxSel = ESel();
-  if (!EdOn()) return;
+  g_ctxSet.clear();
+  if (!EdOn() || !t) return;
   int page;
   float x, y;
   bool exact;
-  if (!t || !ViewHitPage(t, mx, my, &page, &x, &y, &exact) || !exact) return;
+  if (!ViewHitPage(t, mx, my, &page, &x, &y, &exact) || !exact) return;
   EdHit hit;
-  if (!EdHitTest(t, page, x, y, true, &hit)) return;
-  g_ctxSel = hit.sel;
-  const wchar_t* label = L"Удалить";
-  if (hit.sel.kind == 2) {
-    switch (hit.sel.sub) {
-      case FPDF_ANNOT_HIGHLIGHT: label = L"Убрать выделение цветом"; break;
-      case FPDF_ANNOT_UNDERLINE: label = L"Убрать подчёркивание"; break;
-      case FPDF_ANNOT_STRIKEOUT: label = L"Убрать зачёркивание"; break;
-      case FPDF_ANNOT_SQUIGGLY: label = L"Убрать волнистую линию"; break;
-      default: label = L"Удалить фигуру"; break;
+  bool got = EdHitTest(t, page, x, y, true, &hit);
+  if (got && !InSet(hit.sel)) { SetSel(hit.sel); Redraw(); }
+  if (!got && !InSelBox(t, mx, my)) { if (!g_set.empty()) { ClearSel(); Redraw(); } }
+  if (!g_set.empty()) {
+    g_ctxSet = g_set;
+    const wchar_t* label = L"Удалить";
+    const ESel* o = One();
+    if (o && o->kind == 2) {
+      switch (o->sub) {
+        case FPDF_ANNOT_HIGHLIGHT: label = L"Убрать выделение цветом"; break;
+        case FPDF_ANNOT_UNDERLINE: label = L"Убрать подчёркивание"; break;
+        case FPDF_ANNOT_STRIKEOUT: label = L"Убрать зачёркивание"; break;
+        case FPDF_ANNOT_SQUIGGLY: label = L"Убрать волнистую линию"; break;
+        default: label = L"Удалить фигуру"; break;
+      }
+    } else if (g_set.size() > 1) label = L"Удалить выбранное";
+    else label = g_selKind == EK_IMAGE ? L"Удалить картинку" : g_selKind == EK_TEXT ? L"Удалить текст" : L"Удалить";
+    if (g_selHasText) AppendMenuW(m, MF_STRING, ID_ED_OB_EDITTEXT, L"Править текст");
+    if (!(o && o->kind == 2 && IsMarkupSub(o->sub))) {
+      AppendMenuW(m, MF_STRING, ID_ED_OB_COPY, L"Копировать объект");
+      AppendMenuW(m, MF_STRING, ID_ED_OB_DUP, L"Дублировать");
     }
-  } else label = hit.sel.sub == EK_IMAGE ? L"Удалить картинку" : L"Удалить текст";
-  AppendMenuW(m, MF_STRING, ID_ED_CTX_DELETE, label);
+    AppendMenuW(m, MF_STRING, ID_ED_CTX_DELETE, label);
+  }
+  if (EdClipHas() || ClipboardHasImage()) AppendMenuW(m, MF_STRING, ID_ED_OB_PASTE, L"Вставить");
+  AppendMenuW(m, MF_STRING, ID_ED_OB_SELALL, L"Выбрать все объекты страницы");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
 }
 
 // ------------------------------------------------------------------ overlay
-static void SelRectDraw(Gdiplus::Graphics& g, const RECT& r, bool handles, bool usable[8]) {
+static void SelRectDraw(Gdiplus::Graphics& g, const RECT& r, bool handles, bool usable[8], bool rot) {
   Gdiplus::Color acc(255, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent));
   Gdiplus::Pen pen(acc, 1.4f);
   pen.SetDashStyle(Gdiplus::DashStyleDash);
@@ -1086,6 +1538,14 @@ static void SelRectDraw(Gdiplus::Graphics& g, const RECT& r, bool handles, bool 
     g.FillRectangle(&wb, (int)hr.left, (int)hr.top, (int)(hr.right - hr.left - 1), (int)(hr.bottom - hr.top - 1));
     g.DrawRectangle(&hp, (int)hr.left, (int)hr.top, (int)(hr.right - hr.left - 1), (int)(hr.bottom - hr.top - 1));
   }
+  if (rot) {
+    RECT rh = RotHandleRect(r);
+    int cx = (r.left + r.right) / 2;
+    Gdiplus::Pen lp(acc, 1.0f);
+    g.DrawLine(&lp, cx, r.top, cx, (int)(rh.bottom - 1));
+    g.FillEllipse(&wb, (int)rh.left, (int)rh.top, (int)(rh.right - rh.left - 1), (int)(rh.bottom - rh.top - 1));
+    g.DrawEllipse(&hp, (int)rh.left, (int)rh.top, (int)(rh.right - rh.left - 1), (int)(rh.bottom - rh.top - 1));
+  }
 }
 
 void EdPaintOverlay(HDC dc, RECT rc, Tab* t, int first, int last) {
@@ -1094,16 +1554,25 @@ void EdPaintOverlay(HDC dc, RECT rc, Tab* t, int first, int last) {
   if (!t || !t->doc) return;
   Gdiplus::Graphics g(dc);
   g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+  Gdiplus::Color accA(120, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent));
   // selection
-  if (g_sel.kind && g_sel.page >= first && g_sel.page <= last && g_sel.page < t->doc->npages) {
+  if (!g_set.empty() && SelPage() >= first && SelPage() <= last && SelPage() < t->doc->npages) {
     FRect b = g_g == G_NONE ? g_selBox : g_gBox0;
-    RECT r = ViewRectToScreen(t, g_sel.page, b);
+    RECT r = ViewRectToScreen(t, SelPage(), b);
     bool usable[8];
     for (int h = 0; h < 8; h++) usable[h] = HandleUsable(h);
-    if (g_g == G_NONE) SelRectDraw(g, r, true, usable);
-    else {
+    if (g_g == G_NONE) {
+      if (g_set.size() > 1) {
+        Gdiplus::Pen ip(accA, 1.0f);
+        for (auto& ib : g_itemBox) {
+          RECT ir = ViewRectToScreen(t, SelPage(), ib);
+          g.DrawRectangle(&ip, (Gdiplus::REAL)ir.left, (Gdiplus::REAL)ir.top, (Gdiplus::REAL)(ir.right - ir.left), (Gdiplus::REAL)(ir.bottom - ir.top));
+        }
+      }
+      SelRectDraw(g, r, true, usable, CanRotate());
+    } else {
       // the original place stays faint while the ghost moves
-      Gdiplus::Pen fp(Gdiplus::Color(120, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)), 1.0f);
+      Gdiplus::Pen fp(accA, 1.0f);
       g.DrawRectangle(&fp, (Gdiplus::REAL)r.left, (Gdiplus::REAL)r.top, (Gdiplus::REAL)(r.right - r.left), (Gdiplus::REAL)(r.bottom - r.top));
     }
   }
@@ -1124,7 +1593,37 @@ void EdPaintOverlay(HDC dc, RECT rc, Tab* t, int first, int last) {
     }
     bool usable[8];
     for (int h = 0; h < 8; h++) usable[h] = g_g == G_RESIZE && HandleUsable(h);
-    SelRectDraw(g, r, g_g == G_RESIZE, usable);
+    SelRectDraw(g, r, g_g == G_RESIZE, usable, false);
+  }
+  // turning
+  if (g_g == G_ROTATE && g_gMoved && g_gPage >= first && g_gPage <= last) {
+    double cx = (g_gBox0.l + g_gBox0.r) * 0.5, cy = (g_gBox0.t + g_gBox0.b) * 0.5, a = g_rotDeg * 3.14159265358979323846 / 180.0;
+    double cs = cos(a), sn = sin(a);
+    float xs[4] = {g_gBox0.l, g_gBox0.r, g_gBox0.r, g_gBox0.l}, ys[4] = {g_gBox0.t, g_gBox0.t, g_gBox0.b, g_gBox0.b};
+    Gdiplus::PointF pts[4];
+    for (int i = 0; i < 4; i++) {
+      double px = cx + (xs[i] - cx) * cs - (ys[i] - cy) * sn, py = cy + (xs[i] - cx) * sn + (ys[i] - cy) * cs;
+      int sx, sy;
+      ViewPointToScreen(t, g_gPage, (float)px, (float)py, &sx, &sy);
+      pts[i] = Gdiplus::PointF((Gdiplus::REAL)sx, (Gdiplus::REAL)sy);
+    }
+    Gdiplus::SolidBrush fb(Gdiplus::Color(40, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)));
+    g.FillPolygon(&fb, pts, 4);
+    Gdiplus::Pen pen(Gdiplus::Color(255, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)), 1.4f);
+    g.DrawPolygon(&pen, pts, 4);
+    wchar_t lab[32];
+    swprintf(lab, 32, L"%d°", (int)lround(g_rotDeg));
+    Gdiplus::Font f(L"Segoe UI", 10.0f);
+    Gdiplus::SolidBrush tb(Gdiplus::Color(255, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)));
+    g.DrawString(lab, -1, &f, Gdiplus::PointF(pts[0].X + 6, pts[0].Y - 18), &tb);
+  }
+  // frame being drawn to select
+  if (g_g == G_MARQUEE && g_gMoved && g_gPage >= first && g_gPage <= last) {
+    RECT r = ViewRectToScreen(t, g_gPage, g_gBox);
+    Gdiplus::SolidBrush fb(Gdiplus::Color(35, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)));
+    g.FillRectangle(&fb, (Gdiplus::REAL)r.left, (Gdiplus::REAL)r.top, (Gdiplus::REAL)(r.right - r.left), (Gdiplus::REAL)(r.bottom - r.top));
+    Gdiplus::Pen pen(Gdiplus::Color(220, GetRValue(T.accent), GetGValue(T.accent), GetBValue(T.accent)), 1.0f);
+    g.DrawRectangle(&pen, (Gdiplus::REAL)r.left, (Gdiplus::REAL)r.top, (Gdiplus::REAL)(r.right - r.left), (Gdiplus::REAL)(r.bottom - r.top));
   }
   // shape being drawn
   if (g_g == G_SHAPE && g_gPage >= first && g_gPage <= last) {
@@ -1149,7 +1648,6 @@ void EdPaintOverlay(HDC dc, RECT rc, Tab* t, int first, int last) {
   }
 }
 
-
 // ------------------------------------------------------------------ test hooks (scripted mouse)
 static void TestMouse(UINT msg, WPARAM wp, int page, float x, float y) {
   Tab* t = CurTab();
@@ -1158,6 +1656,28 @@ static void TestMouse(UINT msg, WPARAM wp, int page, float x, float y) {
   ViewPointToScreen(t, page, x, y, &sx, &sy);
   SendMessageW(A_.view, msg, wp, MAKELPARAM(sx, sy));
 }
+static void TestLog(const char* fmt, ...) {
+  FILE* f = _wfopen(L"Z:\\tmp\\t\\dump.txt", L"ab");
+  if (!f) return;
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(f, fmt, ap);
+  va_end(ap);
+  fputc('\n', f);
+  fclose(f);
+}
+static UINT KeyByName(const std::string& n) {
+  if (n.size() == 1) return (UINT)toupper((unsigned char)n[0]);
+  if (n == "f2") return VK_F2;
+  if (n == "delete") return VK_DELETE;
+  if (n == "esc") return VK_ESCAPE;
+  if (n == "enter") return VK_RETURN;
+  if (n == "left") return VK_LEFT;
+  if (n == "right") return VK_RIGHT;
+  if (n == "up") return VK_UP;
+  if (n == "down") return VK_DOWN;
+  return 0;
+}
 int EdUiTest(const std::string& line) {
   std::istringstream ss(line);
   std::string c;
@@ -1165,6 +1685,7 @@ int EdUiTest(const std::string& line) {
   Tab* t = CurTab();
   if (c == "mode") { int m; ss >> m; EdSetMode(m); return 1; }
   if (c == "btn") { int id; ss >> id; EdCommand(id); return 1; }
+  if (c == "mods") { ss >> g_testMods; return 1; }
   if (c == "tool") {
     std::string n; ss >> n;
     static const char* names[] = {"select", "hilite", "under", "strike", "squig", "text", "ink", "rect", "ellipse"};
@@ -1178,11 +1699,34 @@ int EdUiTest(const std::string& line) {
     return 1;
   }
   if (c == "click") { int p; float x, y; ss >> p >> x >> y; TestMouse(WM_LBUTTONDOWN, MK_LBUTTON, p, x, y); TestMouse(WM_LBUTTONUP, 0, p, x, y); return 1; }
+  if (c == "dclick") {
+    int p; float x, y; ss >> p >> x >> y;
+    TestMouse(WM_LBUTTONDOWN, MK_LBUTTON, p, x, y); TestMouse(WM_LBUTTONUP, 0, p, x, y);
+    TestMouse(WM_LBUTTONDBLCLK, MK_LBUTTON, p, x, y); TestMouse(WM_LBUTTONUP, 0, p, x, y);
+    return 1;
+  }
   if (c == "drag") {
     int p; float x0, y0, x1, y1; ss >> p >> x0 >> y0 >> x1 >> y1;
     TestMouse(WM_LBUTTONDOWN, MK_LBUTTON, p, x0, y0);
     for (int i = 1; i <= 8; i++) TestMouse(WM_MOUSEMOVE, MK_LBUTTON, p, x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * i / 8);
     TestMouse(WM_LBUTTONUP, 0, p, x1, y1);
+    return 1;
+  }
+  if (c == "rotdrag") {            // rotdrag <deg>: takes the rotation handle and turns the selection
+    double deg; ss >> deg;
+    if (g_set.empty() || !CanRotate()) return 0;
+    ViewEnsureLayout(t);
+    RECT box = ViewRectToScreen(t, SelPage(), g_selBox);
+    RECT rh = RotHandleRect(box);
+    int hx = (rh.left + rh.right) / 2, hy = (rh.top + rh.bottom) / 2;
+    SendMessageW(A_.view, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(hx, hy));
+    float cx = (g_selBox.l + g_selBox.r) * 0.5f, cy = (g_selBox.t + g_selBox.b) * 0.5f;
+    double a = deg * 3.14159265358979323846 / 180.0;
+    for (int i = 1; i <= 6; i++) {
+      double aa = a * i / 6;
+      TestMouse(WM_MOUSEMOVE, MK_LBUTTON, SelPage(), cx + (float)(80 * sin(aa)), cy - (float)(80 * cos(aa)));
+    }
+    TestMouse(WM_LBUTTONUP, 0, SelPage(), cx + (float)(80 * sin(a)), cy - (float)(80 * cos(a)));
     return 1;
   }
   if (c == "textbox") {            // textbox <page> <x> <y> <text with \n>
@@ -1198,11 +1742,30 @@ int EdUiTest(const std::string& line) {
     TextBoxResize();
     return 1;
   }
+  if (c == "edittext") {           // edittext <text>: types into the open text box (editing existing text)
+    std::string r; std::getline(ss, r);
+    if (!r.empty() && r[0] == ' ') r.erase(0, 1);
+    for (size_t i = 0; i + 1 < r.size(); i++) if (r[i] == '\\' && r[i + 1] == 'n') r.replace(i, 2, "\r\n");
+    if (!g_te) return 0;
+    SetWindowTextW(g_te, Utf8ToW(r).c_str());
+    TextBoxResize();
+    return 1;
+  }
   if (c == "tbinfo") {
     RECT r = {0, 0, 0, 0};
     if (g_te) GetWindowRect(g_te, &r);
-    FILE* f = _wfopen(L"Z:\\tmp\\t\\dump.txt", L"ab");
-    if (f) { fprintf(f, "tb te=%p vis=%d rect=%ld,%ld,%ld,%ld focus=%d\n", (void*)g_te, g_te ? IsWindowVisible(g_te) : 0, r.left, r.top, r.right, r.bottom, GetFocus() == g_te); fclose(f); }
+    TestLog("tb te=%p vis=%d rect=%ld,%ld,%ld,%ld focus=%d edit=%d", (void*)g_te, g_te ? IsWindowVisible(g_te) : 0, r.left, r.top, r.right, r.bottom, GetFocus() == g_te, g_tbEdit ? 1 : 0);
+    if (g_te) {
+      int len = GetWindowTextLengthW(g_te);
+      std::vector<wchar_t> buf(len + 2, 0);
+      GetWindowTextW(g_te, buf.data(), len + 1);
+      TestLog("tbtext [%s]", WToUtf8(buf.data()).c_str());
+      RECT fr = {0, 0, 0, 0}, cr = {0, 0, 0, 0};
+      SendMessageW(g_te, EM_GETRECT, 0, (LPARAM)&fr);
+      GetClientRect(g_te, &cr);
+      TestLog("tbedit lines=%d first=%d fmt=%ld,%ld,%ld,%ld client=%ld,%ld,%ld,%ld", (int)SendMessageW(g_te, EM_GETLINECOUNT, 0, 0), (int)SendMessageW(g_te, EM_GETFIRSTVISIBLELINE, 0, 0),
+              fr.left, fr.top, fr.right, fr.bottom, cr.left, cr.top, cr.right, cr.bottom);
+    }
     return 1;
   }
   if (c == "textcommit") { bool had = g_te != nullptr; TextBoxClose(true); return had; }
@@ -1213,17 +1776,50 @@ int EdUiTest(const std::string& line) {
     ApplyColorToSel(kPal[i].c);
     return 1;
   }
-  if (c == "picture") { std::string f; std::getline(ss, f); if (!f.empty() && f[0] == ' ') f.erase(0, 1); InsertPicture(Utf8ToW(f)); return g_sel.kind != 0; }
-  if (c == "setsize") { int v; ss >> v; if (SizeIsFont()) g_fontSize = v; else g_lineW = v; return 1; }
+  if (c == "picture") { std::string f; std::getline(ss, f); if (!f.empty() && f[0] == ' ') f.erase(0, 1); InsertPicture(Utf8ToW(f)); return !g_set.empty(); }
+  if (c == "setsize") { int v; ss >> v; if (SizeIsFont()) { g_fontSize = v; if (g_selText) { ESet s = g_set; if (EdSetTextSizeSet(t, s, v)) SetSet(s); } } else g_lineW = v; return 1; }
+  if (c == "key") {                // key <name> [ctrl] [shift]
+    std::string n, m1, m2; ss >> n >> m1 >> m2;
+    bool ctrl = m1 == "ctrl" || m2 == "ctrl", shift = m1 == "shift" || m2 == "shift";
+    UINT vk = KeyByName(n);
+    if (!vk) return 0;
+    bool r = EdKey(vk, ctrl, shift);
+    Redraw();
+    return r;
+  }
+  if (c == "obj") {                // obj <name> [arg]
+    std::string n; ss >> n;
+    double arg = 0; ss >> arg;
+    static const std::pair<const char*, int> names[] = {{"copy", ID_ED_OB_COPY}, {"cut", ID_ED_OB_CUT}, {"paste", ID_ED_OB_PASTE}, {"dup", ID_ED_OB_DUP},
+        {"group", ID_ED_OB_GROUP}, {"ungroup", ID_ED_OB_UNGROUP}, {"selall", ID_ED_OB_SELALL}, {"edittext", ID_ED_OB_EDITTEXT}, {"bold", ID_ED_OB_BOLD},
+        {"italic", ID_ED_OB_ITALIC}, {"cw", ID_ED_OB_ROT_CW}, {"ccw", ID_ED_OB_ROT_CCW}, {"r180", ID_ED_OB_ROT_180}};
+    for (auto& p : names) if (n == p.first) { ObjCommand(p.second); Redraw(); return 1; }
+    if (n == "rot") { RotateSel(arg); Redraw(); return 1; }
+    if (n == "align") { ObjCommand(ID_ED_OB_AL_LEFT + (int)arg); Redraw(); return 1; }
+    if (n == "opac") { ESet s = g_set; bool ok = EdSetOpacity(t, s, (int)arg); if (ok) SetSet(s); Redraw(); return ok; }
+    if (n == "textsize") { ESet s = g_set; bool ok = EdSetTextSizeSet(t, s, (int)arg); if (ok) SetSet(s); Redraw(); return ok; }
+    if (n == "z") { ESet s = g_set; bool ok = EdZOrderSet(t, s, (int)arg); if (ok) SetSet(s); Redraw(); return ok; }
+    if (n == "move") { std::string dy; ss >> dy; FRect b = g_selBox, nb = {b.l + (float)arg, b.t + (float)atof(dy.c_str()), b.r + (float)arg, b.b + (float)atof(dy.c_str())}; ESet s = g_set; bool ok = EdTransformSet(t, s, b, nb); if (ok) SetSet(s); Redraw(); return ok; }
+    if (n == "delete") { EdCommand(ID_ED_DELETE); return 1; }
+    return 0;
+  }
+  if (c == "face") {               // face <family> <style>: font of the selected text (or of new text)
+    std::string fam; int st = 0; ss >> fam >> st;
+    for (char& ch : fam) if (ch == '_') ch = ' ';
+    ApplyFace(Utf8ToW(fam), st);
+    return 1;
+  }
   if (c == "selinfo") {
-    char b[200];
-    snprintf(b, sizeof b, "sel kind=%d page=%d grp=%d annot=%d sub=%d box=%.1f,%.1f,%.1f,%.1f tool=%d", g_sel.kind, g_sel.page, g_sel.grp, g_sel.annot, g_sel.sub, g_selBox.l, g_selBox.t, g_selBox.r, g_selBox.b, g_tool);
-    FILE* f = _wfopen(L"Z:\\tmp\\t\\dump.txt", L"ab");
-    if (f) { fprintf(f, "%s\n", b); fclose(f); }
-    return g_sel.kind != 0 ? 1 : 0;
+    TestLog("sel n=%d kind=%d text=%d hasText=%d objs=%d annots=%d angle=%d box=%.1f,%.1f,%.1f,%.1f tool=%d", (int)g_set.size(), g_selKind, g_selText, g_selHasText,
+            g_selObjs, g_selAnnots, g_selAngle, g_selBox.l, g_selBox.t, g_selBox.r, g_selBox.b, g_tool);
+    for (auto& it : g_set) TestLog("  item page=%d kind=%d grp=%d obj=%d annot=%d sub=%d", it.page, it.kind, it.grp, it.obj, it.annot, it.sub);
+    EdTextInfo ti;
+    if (g_selHasText && EdGetText(t, g_set, &ti))
+      TestLog("  text [%s] fam=%s style=%d size=%d lines=%d", WToUtf8(ti.text).c_str(), WToUtf8(ti.family).c_str(), ti.style, ti.size, ti.lines);
+    return !g_set.empty() ? 1 : 0;
   }
   if (c == "dlgexport") {
-    auto* f = new std::function<void()>([]() { ExportOpts o; o.preset = 1; ExportOptionsDialog(A_.main, &o, 12); });
+    auto* f = new std::function<void()>([]() { ExportOpts o; o.preset = 1; o.paper = 1; ExportOptionsDialog(A_.main, &o, 12); });
     PostMessageW(A_.main, WM_APP_TESTCMD, 1, (LPARAM)f);
     return 1;
   }
@@ -1236,6 +1832,12 @@ int EdUiTest(const std::string& line) {
     return 1;
   }
   if (c == "page") { std::string n; ss >> n; int cmd = n == "rotcw" ? ID_ED_PG_ROTCW : n == "del" ? ID_ED_PG_DEL : n == "up" ? ID_ED_PG_UP : n == "down" ? ID_ED_PG_DOWN : n == "blank" ? ID_ED_PG_BLANK : 0; if (!cmd) return 0; PageCommand(cmd); return 1; }
+  if (c == "fit") {                // fit <item 0..6> : the Pages menu command "all pages to paper size"
+    int k = 0; ss >> k;
+    PageCommand(ID_ED_PG_FIT + k);
+    return 1;
+  }
+  if (c == "fitopt") { int en = 1, mg = 0; ss >> en >> mg; g_fitEnlarge = en != 0; g_fitMargin = mg; return 1; }
   return -1;
 }
 

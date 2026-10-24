@@ -1146,7 +1146,7 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: {
       MINMAXINFO* mm = (MINMAXINFO*)lp;
 #ifdef APP_EDITOR
-      mm->ptMinTrackSize.x = S(900);
+      mm->ptMinTrackSize.x = S(1000);
 #else
       mm->ptMinTrackSize.x = S(620);
 #endif

@@ -442,6 +442,23 @@ static void DrawIconG(Graphics& g, Icon ic, FRect R, COLORREF col, float sw) {
       L(10, 10.5f, 14, 10.5f); L(10, 13, 14, 13);
       break;
     }
+    case IC_OBJECT: {
+      Pen dp(C(col, 255), 1.3f * k);
+      dp.SetDashStyle(DashStyleDash);
+      g.DrawRectangle(&dp, x0 + 4.5f * k, y0 + 5.5f * k, 11 * k, 9 * k);
+      SolidBrush fb(C(col, 255));
+      float sq = 2.6f * k;
+      g.FillRectangle(&fb, x0 + 3.2f * k, y0 + 4.2f * k, sq, sq);
+      g.FillRectangle(&fb, x0 + 14.2f * k, y0 + 4.2f * k, sq, sq);
+      g.FillRectangle(&fb, x0 + 3.2f * k, y0 + 13.2f * k, sq, sq);
+      g.FillRectangle(&fb, x0 + 14.2f * k, y0 + 13.2f * k, sq, sq);
+      break;
+    }
+    case IC_TXTEDIT: {
+      L(3, 4.5f, 12, 4.5f); L(7.5f, 4.5f, 7.5f, 14.5f); L(5.5f, 14.5f, 9.5f, 14.5f);
+      PointF pn[] = {P(11.5f, 15.5f), P(11.9f, 12.6f), P(16.4f, 8.2f), P(18.2f, 10.0f), P(13.8f, 14.6f), P(11.5f, 15.5f)}; g.DrawLines(&pen, pn, 6);
+      break;
+    }
     case IC_SAVEAS: {
       PointF a[] = {P(3, 3), P(13, 3), P(16, 6), P(16, 10)}; g.DrawLines(&pen, a, 4);
       PointF b[] = {P(3, 3), P(3, 17), P(9, 17)}; g.DrawLines(&pen, b, 3);

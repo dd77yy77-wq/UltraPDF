@@ -54,9 +54,9 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #define APP_ID L"UltraPDFEditor"
 #define APP_DIR L"UltraPDF Editor"
 #define APP_EXE L"UltraPDF-Editor.exe"
-#define APP_VERSION_CODE 1
-#define APP_VERSION_NAME L"1.0"
-#define APP_VERSION_NAME_A "1.0"
+#define APP_VERSION_CODE 2
+#define APP_VERSION_NAME L"1.1"
+#define APP_VERSION_NAME_A "1.1"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-editor.json"
 #define UPDATE_EXE_PATH L"/dd77yy77-wq/UltraPDF/main/UltraPDF-Editor.exe"
 #else
@@ -92,7 +92,12 @@ typedef std::wstring ws;
   X(FPDFBitmap_Create) X(FPDFBitmap_GetBuffer) X(FPDFBitmap_GetStride) X(FPDFBitmap_GetWidth) X(FPDFBitmap_GetHeight) \
   X(FPDFPage_Delete) X(FPDF_MovePages) X(FPDF_ImportPages) X(FPDFPage_SetRotation) X(FPDFPage_GetRotation) \
   X(FPDFBitmap_GetFormat) X(FPDFAnnot_SetFlags) X(FPDFPage_New) X(FPDFPageObj_GetMatrix) X(FPDFPageObj_SetMatrix) \
-  X(FPDFAnnot_SetStringValue) X(FPDFAnnot_GetFlags) X(FPDFImageObj_GetRenderedBitmap) X(FPDFPage_Flatten)
+  X(FPDFAnnot_SetStringValue) X(FPDFAnnot_GetFlags) X(FPDFImageObj_GetRenderedBitmap) X(FPDFPage_Flatten) \
+  X(FPDFTextObj_GetTextRenderMode) X(FPDFTextObj_GetFont) X(FPDFFont_GetFamilyName) X(FPDFFont_GetBaseFontName) X(FPDFFont_GetWeight) \
+  X(FPDFFont_GetFlags) X(FPDFFont_GetItalicAngle) X(FPDFPageObj_GetStrokeColor) X(FPDFPageObj_SetStrokeColor) X(FPDFAnnot_GetBorder) \
+  X(FPDFAnnot_GetInkListCount) X(FPDFAnnot_GetInkListPath) X(FPDFPage_TransFormWithClip) X(FPDFPage_TransformAnnots) X(FPDFPage_SetMediaBox) \
+  X(FPDFPage_SetCropBox) X(FPDFPage_GetMediaBox) X(FPDFPage_GetCropBox) X(FPDFPage_SetTrimBox) X(FPDFPage_SetBleedBox) X(FPDFPage_SetArtBox) \
+  X(FPDFFormObj_CountObjects) X(FPDFImageObj_GetImagePixelSize) X(FPDFPath_GetDrawMode)
 #else
 #define PDF_FUNCS_ED(X)
 #endif
@@ -191,7 +196,7 @@ enum Icon {
   IC_NIGHT, IC_BOOK, IC_BOOKON, IC_PRINT, IC_FULL, IC_CLOSE, IC_PLUS, IC_CASE, IC_CHEV, IC_CHEVD, IC_PRES,
   IC_HIST, IC_SAVE, IC_SHOW, IC_STAR, IC_LIST, IC_ROTL, IC_THEME, IC_SUN, IC_PAGE, IC_APPS, IC_UPD, IC_INFO, IC_EXIT, IC_TRASH, IC_GEAR,
   IC_UNDO, IC_REDO, IC_CURSOR, IC_HILITE, IC_UNDER, IC_STRIKE, IC_SQUIG, IC_TEXTT, IC_PEN, IC_RECT, IC_ELLIPSE, IC_IMAGE,
-  IC_TOFRONT, IC_FORWARD, IC_BACKWARD, IC_TOBACK, IC_PAGES, IC_SAVEAS
+  IC_TOFRONT, IC_FORWARD, IC_BACKWARD, IC_TOBACK, IC_PAGES, IC_SAVEAS, IC_OBJECT, IC_TXTEDIT
 };
 HBITMAP MakeMenuIcon(Icon ic, int size, COLORREF col);    // 32-bit premultiplied ARGB bitmap for a menu item (caller deletes)
 void DrawIcon(HDC dc, Icon ic, FRect r, COLORREF col, float stroke = 1.6f);

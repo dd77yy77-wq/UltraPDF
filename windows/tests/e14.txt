@@ -1,0 +1,44 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\obj.pdf
+wait 2500
+ed mode 2
+cmd fitp
+wait 600
+ed tool select
+ed dclick 0 100 112
+wait 400
+ed tbinfo
+ed edittext Покупатель обязуется принять и оплатить товар в течение 5 дней.
+wait 300
+shotscreen Z:\tmp\t\e14_a.bmp
+ed textcommit
+wait 300
+ed selinfo
+ed dump 0
+shot Z:\tmp\t\e14_b.bmp
+ed face Times_New_Roman 1
+wait 300
+ed selinfo
+ed setcolor 2
+ed obj textsize 16
+wait 400
+ed selinfo
+shot Z:\tmp\t\e14_c.bmp
+ed dclick 0 100 78
+wait 400
+ed tbinfo
+ed edittext Договор поставки № 18 (новая редакция)
+ed textcommit
+wait 400
+ed selinfo
+ed face Arial 3
+wait 400
+ed selinfo
+shot Z:\tmp\t\e14_d.bmp
+ed key z ctrl
+ed key z ctrl
+wait 300
+ed selinfo
+shot Z:\tmp\t\e14_e.bmp
+ed save Z:\tmp\t\e14_out.pdf
+quit

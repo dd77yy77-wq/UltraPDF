@@ -26,7 +26,7 @@ enum { IDB_OK = 1, IDB_CANCEL = 2, IDB_UPD = 10, IDB_WEB = 11, IDB_ASSOC = 12 };
 static HBRUSH g_dlgBrush = nullptr;
 
 #ifdef APP_EDITOR
-enum { IDC_PRESET = 101, IDC_MODE, IDC_DPI, IDC_COLOR, IDC_QUAL, IDC_LIMIT };
+enum { IDC_PRESET = 101, IDC_MODE, IDC_DPI, IDC_COLOR, IDC_QUAL, IDC_LIMIT, IDC_PAPER };
 struct ExpPreset { const wchar_t* name; int mode, dpi, color, q, mb; const wchar_t* hint; };
 static const ExpPreset kExpPresets[] = {
     {L"Как есть (без изменений)", 0, 200, 1, 75, 0, L"Файл сохраняется таким, какой он сейчас. Текст остаётся текстом."},
@@ -56,6 +56,7 @@ static void ExpWrite(DlgState* st) {            // opts -> controls
   SendMessageW(st->c[3], CB_SETCURSEL, o.color, 0);
   SendMessageW(st->c[4], CB_SETCURSEL, qi, 0);
   SetWindowTextW(st->c[5], std::to_wstring(o.maxMB).c_str());
+  SendMessageW(st->c[6], CB_SETCURSEL, min(max(o.paper, 0), 3), 0);
 }
 static void ExpRead(DlgState* st) {             // controls -> opts
   ExportOpts& o = *st->eo;
@@ -68,6 +69,7 @@ static void ExpRead(DlgState* st) {             // controls -> opts
   wchar_t b[32];
   GetWindowTextW(st->c[5], b, 32);
   o.maxMB = min(max(_wtoi(b), 0), 2000);
+  o.paper = o.mode == 0 ? 0 : (int)min(max((int)SendMessageW(st->c[6], CB_GETCURSEL, 0, 0), 0), 3);
 }
 static void ExpRefresh(DlgState* st) {
   int mode = (int)SendMessageW(st->c[1], CB_GETCURSEL, 0, 0), color = (int)SendMessageW(st->c[3], CB_GETCURSEL, 0, 0);
@@ -75,6 +77,7 @@ static void ExpRefresh(DlgState* st) {
   EnableWindow(st->c[3], mode == 2);
   EnableWindow(st->c[4], mode == 2 && color != 2);
   EnableWindow(st->c[5], mode != 0);
+  EnableWindow(st->c[6], mode != 0);
   int pr = (int)SendMessageW(st->c[0], CB_GETCURSEL, 0, 0);
   st->file = kExpPresets[min(max(pr, 0), kExpCustom)].hint;
   RECT r = {S(20), S(272), S(500), S(370)};
@@ -127,6 +130,7 @@ static LRESULT CALLBACK DlgProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         lab(L"Цветность", 190, 130);
         lab(L"Качество JPEG", 360, 130);
         lab(L"Лимит размера файла, МБ", 20, 192);
+        lab(L"Размер страниц", 320, 192);
         RECT lr = {S(150), S(218), S(400), S(244)};
         DrawTextW2(dc, L"0 — без ограничения", lr, T.dim, UiFont(S(12)), DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         RECT hr = {S(20), S(272), S(500), S(370)};
@@ -333,6 +337,11 @@ bool ExportOptionsDialog(HWND owner, ExportOpts* o, int npages) {
   SendMessageW(st.c[4], CB_ADDSTRING, 0, (LPARAM)L"Низкое");
   st.c[5] = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL, S(20), S(216), S(110), S(28), d, (HMENU)(INT_PTR)IDC_LIMIT, A_.inst, nullptr);
   SendMessageW(st.c[5], WM_SETFONT, (WPARAM)UiFont(S(14)), TRUE);
+  st.c[6] = combo(IDC_PAPER, 320, 216, 180);
+  SendMessageW(st.c[6], CB_ADDSTRING, 0, (LPARAM)L"Не менять");
+  SendMessageW(st.c[6], CB_ADDSTRING, 0, (LPARAM)L"A4 (как у страницы)");
+  SendMessageW(st.c[6], CB_ADDSTRING, 0, (LPARAM)L"A4 книжная");
+  SendMessageW(st.c[6], CB_ADDSTRING, 0, (LPARAM)L"A4 альбомная");
   ExpWrite(&st);
   ExpRefresh(&st);
   MkButton(d, L"Продолжить", IDB_OK, S(306), S(386), S(100), S(32), true);

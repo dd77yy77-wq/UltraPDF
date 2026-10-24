@@ -1,0 +1,7 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sizes.pdf
+wait 2500
+ed mode 2
+ed dlgexport
+wait 1200
+shotscreen Z:\tmp\t\e18_dlg.bmp

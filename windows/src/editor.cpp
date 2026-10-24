@@ -59,18 +59,23 @@ static void PdfRectOfTl(const PXf& xf, const FRect& r, float* l, float* b, float
 }
 
 // ------------------------------------------------------------------ content marks: editor-made page objects are tagged
+// mark "UPE": k kind, g group (what is selected / moved together), s size*10 for text, u the object's own unit (so a group can be taken apart),
+// f font code (family*4+style), r angle*10 the editor turned it by, a opacity in percent
 static const char* kMark = "UPE";
 static int g_grpSeq = 0;
 static int NewGroupId() {
   g_grpSeq++;
   return (int)(((uint32_t)(time(nullptr) & 0x3FFFFF) << 8) | (uint32_t)(g_grpSeq & 0xFF)) & 0x7FFFFFFF;
 }
-static void TagObject(Doc* d, FPDF_PAGEOBJECT o, int kind, int grp, int extra) {
+struct TagInfo { int kind = 0, grp = 0, extra = 0, unit = 0, font = 0, rot = 0, op = 100; };
+static void TagObject(Doc* d, FPDF_PAGEOBJECT o, int kind, int grp, int extra, int font = 0) {
   FPDF_PAGEOBJECTMARK m = PA.FPDFPageObj_AddMark(o, kMark);
   if (!m) return;
   PA.FPDFPageObjMark_SetIntParam(d->h, o, m, "k", kind);
   PA.FPDFPageObjMark_SetIntParam(d->h, o, m, "g", grp);
   PA.FPDFPageObjMark_SetIntParam(d->h, o, m, "s", extra);
+  PA.FPDFPageObjMark_SetIntParam(d->h, o, m, "u", grp);
+  PA.FPDFPageObjMark_SetIntParam(d->h, o, m, "f", font);
 }
 static FPDF_PAGEOBJECTMARK FindTagMark(FPDF_PAGEOBJECT o) {
   int n = PA.FPDFPageObj_CountMarks(o);
@@ -85,41 +90,76 @@ static FPDF_PAGEOBJECTMARK FindTagMark(FPDF_PAGEOBJECT o) {
   }
   return nullptr;
 }
-static bool ReadTag(FPDF_PAGEOBJECT o, int* kind, int* grp, int* extra) {
+static bool ReadTagInfo(FPDF_PAGEOBJECT o, TagInfo* ti) {
   FPDF_PAGEOBJECTMARK m = FindTagMark(o);
   if (!m) return false;
-  int k = 0, g = 0, s = 0;
+  int g = 0;
   if (!PA.FPDFPageObjMark_GetParamIntValue(m, "g", &g)) return false;
-  PA.FPDFPageObjMark_GetParamIntValue(m, "k", &k);
-  PA.FPDFPageObjMark_GetParamIntValue(m, "s", &s);
-  if (kind) *kind = k;
-  if (grp) *grp = g;
-  if (extra) *extra = s;
+  TagInfo t;
+  t.grp = g;
+  PA.FPDFPageObjMark_GetParamIntValue(m, "k", &t.kind);
+  PA.FPDFPageObjMark_GetParamIntValue(m, "s", &t.extra);
+  if (!PA.FPDFPageObjMark_GetParamIntValue(m, "u", &t.unit)) t.unit = g;
+  PA.FPDFPageObjMark_GetParamIntValue(m, "f", &t.font);
+  PA.FPDFPageObjMark_GetParamIntValue(m, "r", &t.rot);
+  if (!PA.FPDFPageObjMark_GetParamIntValue(m, "a", &t.op)) t.op = 100;
+  *ti = t;
   return true;
 }
+static void SetMarkInt(Doc* d, FPDF_PAGEOBJECT o, const char* key, int v) {
+  FPDF_PAGEOBJECTMARK m = FindTagMark(o);
+  if (m) PA.FPDFPageObjMark_SetIntParam(d->h, o, m, key, v);
+}
 
-struct TagObj { int idx; int kind, grp, extra; FRect box; FPDF_PAGEOBJECT o; };
-static void EnumTagged(FPDF_PAGE pg, const PXf& xf, std::vector<TagObj>* out) {
+static int KindOfType(int type) {
+  switch (type) {
+    case FPDF_PAGEOBJ_TEXT: return EK_TEXT;
+    case FPDF_PAGEOBJ_IMAGE: return EK_IMAGE;
+    case FPDF_PAGEOBJ_PATH: return EK_PATH;
+    default: return EK_FORM;
+  }
+}
+
+struct TagObj {
+  int idx = 0;
+  int kind = 0, grp = 0, extra = 0, unit = 0, font = 0, rot = 0, op = 100;
+  int type = 0;
+  bool tagged = false;
+  FRect box;
+  FPDF_PAGEOBJECT o = nullptr;
+};
+static void EnumAll(FPDF_PAGE pg, const PXf& xf, std::vector<TagObj>* out, bool taggedOnly) {
   int n = PA.FPDFPage_CountObjects(pg);
   for (int i = 0; i < n; i++) {
     FPDF_PAGEOBJECT o = PA.FPDFPage_GetObject(pg, i);
     if (!o) continue;
     TagObj t;
-    if (PA.FPDFPageObj_CountMarks(o) <= 0 || !ReadTag(o, &t.kind, &t.grp, &t.extra)) continue;
+    TagInfo ti;
+    bool tg = PA.FPDFPageObj_CountMarks(o) > 0 && ReadTagInfo(o, &ti);
+    if (taggedOnly && !tg) continue;
     float l, b, r, tp;
     if (!PA.FPDFPageObj_GetBounds(o, &l, &b, &r, &tp)) continue;
-    t.idx = i; t.o = o;
+    t.idx = i; t.o = o; t.type = PA.FPDFPageObj_GetType(o);
+    t.tagged = tg;
+    if (tg) { t.kind = ti.kind; t.grp = ti.grp; t.extra = ti.extra; t.unit = ti.unit; t.font = ti.font; t.rot = ti.rot; t.op = ti.op; }
+    else t.kind = KindOfType(t.type);
     t.box = TlBoxOfPdf(xf, l, b, r, tp);
     out->push_back(t);
   }
+}
+static void EnumTagged(FPDF_PAGE pg, const PXf& xf, std::vector<TagObj>* out) { EnumAll(pg, xf, out, true); }
+static FRect UnionRect(const FRect& a, const FRect& b) {
+  FRect u;
+  u.l = min(a.l, b.l); u.t = min(a.t, b.t); u.r = max(a.r, b.r); u.b = max(a.b, b.b);
+  return u;
 }
 static FRect UnionBox(const std::vector<TagObj>& v, int grp, bool* any) {
   FRect u;
   bool have = false;
   for (auto& t : v) {
-    if (t.grp != grp) continue;
+    if (!t.tagged || t.grp != grp) continue;
     if (!have) { u = t.box; have = true; }
-    else { u.l = min(u.l, t.box.l); u.t = min(u.t, t.box.t); u.r = max(u.r, t.box.r); u.b = max(u.b, t.box.b); }
+    else u = UnionRect(u, t.box);
   }
   if (any) *any = have;
   return u;
@@ -222,44 +262,84 @@ bool EdRedo(Tab* t) {
 }
 
 // ------------------------------------------------------------------ fonts
-struct FontFile { const wchar_t* key; const wchar_t* file; const wchar_t* alt; };
-static const FontFile kFonts[] = {
-    {L"Arial", L"arial.ttf", L"\\usr\\share\\fonts\\truetype\\liberation\\LiberationSans-Regular.ttf"},
-    {L"Times New Roman", L"times.ttf", L"\\usr\\share\\fonts\\truetype\\liberation\\LiberationSerif-Regular.ttf"},
-    {L"Courier New", L"cour.ttf", L"\\usr\\share\\fonts\\truetype\\liberation\\LiberationMono-Regular.ttf"},
-    {L"Segoe UI", L"segoeui.ttf", L"\\usr\\share\\fonts\\truetype\\dejavu\\DejaVuSans.ttf"},
-    {L"Calibri", L"calibri.ttf", L"\\usr\\share\\fonts\\truetype\\crosextra\\Carlito-Regular.ttf"},
+// four faces per family: regular, bold, italic, bold italic (style bits: 1 bold, 2 italic). The second set is for Wine on the test machine.
+struct FontFam { const wchar_t* key; const wchar_t* file[4]; const wchar_t* alt[4]; };
+static const FontFam kFonts[] = {
+    {L"Arial", {L"arial.ttf", L"arialbd.ttf", L"ariali.ttf", L"arialbi.ttf"},
+     {L"liberation\\LiberationSans-Regular.ttf", L"liberation\\LiberationSans-Bold.ttf", L"liberation\\LiberationSans-Italic.ttf", L"liberation\\LiberationSans-BoldItalic.ttf"}},
+    {L"Times New Roman", {L"times.ttf", L"timesbd.ttf", L"timesi.ttf", L"timesbi.ttf"},
+     {L"liberation\\LiberationSerif-Regular.ttf", L"liberation\\LiberationSerif-Bold.ttf", L"liberation\\LiberationSerif-Italic.ttf", L"liberation\\LiberationSerif-BoldItalic.ttf"}},
+    {L"Courier New", {L"cour.ttf", L"courbd.ttf", L"couri.ttf", L"courbi.ttf"},
+     {L"liberation\\LiberationMono-Regular.ttf", L"liberation\\LiberationMono-Bold.ttf", L"liberation\\LiberationMono-Italic.ttf", L"liberation\\LiberationMono-BoldItalic.ttf"}},
+    {L"Segoe UI", {L"segoeui.ttf", L"segoeuib.ttf", L"segoeuii.ttf", L"segoeuiz.ttf"},
+     {L"dejavu\\DejaVuSans.ttf", L"dejavu\\DejaVuSans-Bold.ttf", L"dejavu\\DejaVuSans-Oblique.ttf", L"dejavu\\DejaVuSans-BoldOblique.ttf"}},
+    {L"Calibri", {L"calibri.ttf", L"calibrib.ttf", L"calibrii.ttf", L"calibriz.ttf"},
+     {L"crosextra\\Carlito-Regular.ttf", L"crosextra\\Carlito-Bold.ttf", L"crosextra\\Carlito-Italic.ttf", L"crosextra\\Carlito-BoldItalic.ttf"}},
 };
-static ws FontPath(const wchar_t* key) {
+static const int kNFonts = (int)(sizeof(kFonts) / sizeof(kFonts[0]));
+static int FamilyIndex(const ws& key) {
+  for (int i = 0; i < kNFonts; i++) if (key == kFonts[i].key) return i;
+  return -1;
+}
+static ws FontPathAt(int fam, int style) {
   wchar_t win[MAX_PATH];
   GetWindowsDirectoryW(win, MAX_PATH);
-  for (auto& f : kFonts) {
-    if (wcscmp(f.key, key) != 0) continue;
-    ws p = ws(win) + L"\\Fonts\\" + f.file;
+  const FontFam& f = kFonts[fam];
+  for (int s : {style & 3, 0}) {
+    ws p = ws(win) + L"\\Fonts\\" + f.file[s];
     if (FileExists(p)) return p;
-    ws q = ws(L"Z:") + f.alt;                              // Wine, for the tests
+    ws q = ws(L"Z:\\usr\\share\\fonts\\truetype\\") + f.alt[s];
     if (FileExists(q)) return q;
-    return L"";
   }
   return L"";
 }
+static ws FontPath(const wchar_t* key) { int i = FamilyIndex(key); return i < 0 ? L"" : FontPathAt(i, 0); }
 std::vector<ws> EdAvailableFonts() {
   std::vector<ws> v;
-  for (auto& f : kFonts) if (!FontPath(f.key).empty()) v.push_back(f.key);
+  for (int i = 0; i < kNFonts; i++) if (!FontPathAt(i, 0).empty()) v.push_back(kFonts[i].key);
   if (v.empty()) v.push_back(L"Arial");
   return v;
 }
-static FPDF_FONT LoadDocFont(Doc* d, const ws& key) {
+static FPDF_FONT LoadDocFont(Doc* d, const ws& family, int style) {
+  int fam = FamilyIndex(family);
+  if (fam < 0) fam = 0;
+  ws key = ws(kFonts[fam].key) + L"|" + std::to_wstring(style & 3);
   auto it = d->fonts.find(key);
   if (it != d->fonts.end()) return (FPDF_FONT)it->second;
-  ws path = FontPath(key.c_str());
-  if (path.empty()) path = FontPath(L"Arial");
+  ws path = FontPathAt(fam, style);
+  if (path.empty()) path = FontPathAt(0, style);
   if (path.empty()) return nullptr;
   std::string data;
   if (!ReadFileAll(path, &data) || data.empty()) return nullptr;
   FPDF_FONT f = PA.FPDFText_LoadFont(d->h, (const uint8_t*)data.data(), (uint32_t)data.size(), FPDF_FONT_TRUETYPE, 1);
   if (f) d->fonts[key] = f;
   return f;
+}
+// which of our families / styles resembles a font of the document
+static void MapPdfFont(FPDF_FONT f, int* fam, int* style) {
+  *fam = 0; *style = 0;
+  if (!f) return;
+  char nm[256] = {};
+  std::string name;
+  size_t n = PA.FPDFFont_GetFamilyName(f, nm, sizeof nm);
+  if (n > 1) name = nm;
+  char bn[256] = {};
+  n = PA.FPDFFont_GetBaseFontName(f, bn, sizeof bn);
+  if (n > 1) { name += " "; name += bn; }
+  for (char& c : name) c = (char)tolower((unsigned char)c);
+  auto has = [&](const char* s) { return name.find(s) != std::string::npos; };
+  int flags = PA.FPDFFont_GetFlags(f);
+  if (has("times") || (has("serif") && !has("sans")) || has("georgia") || has("garamond") || has("cambria") || has("book") || has("palatino") || has("minion") || has("roman")) *fam = 1;
+  else if (has("courier") || has("mono") || has("consolas") || has("typewriter")) *fam = 2;
+  else if (has("calibri") || has("carlito")) *fam = 4;
+  else if (has("segoe") || has("tahoma") || has("verdana") || has("dejavu")) *fam = 3;
+  else if (has("arial") || has("helvetica") || has("sans") || has("liberation")) *fam = 0;
+  else if (flags & 2) *fam = 1;           // PDF font flag Serif
+  else if (flags & 1) *fam = 2;           // FixedPitch
+  bool bold = has("bold") || has("black") || has("heavy") || has("semibold") || PA.FPDFFont_GetWeight(f) >= 600 || (flags & 0x40000) != 0;
+  int ang = 0;
+  bool italic = has("italic") || has("oblique") || (PA.FPDFFont_GetItalicAngle(f, &ang) && ang != 0) || (flags & 0x40) != 0;
+  *style = (bold ? 1 : 0) | (italic ? 2 : 0);
 }
 
 // ------------------------------------------------------------------ helpers
@@ -275,7 +355,29 @@ static bool IsEditableAnnot(int sub, bool markup) {
   return false;
 }
 
-bool EdHitTest(Tab* t, int page, float x, float y, bool markup, EdHit* out) {
+// objects of the page's own content that may be picked with the mouse: no invisible text (scan layers), nothing that covers the page
+static bool RawSelectable(const TagObj& o, float pw, float ph, bool deep) {
+  if (o.tagged) return true;
+  float w = o.box.r - o.box.l, h = o.box.b - o.box.t;
+  if (w < 0.01f && h < 0.01f) return false;
+  float area = w * h, page = max(pw * ph, 1.0f);
+  switch (o.type) {
+    case FPDF_PAGEOBJ_TEXT: return PA.FPDFTextObj_GetTextRenderMode(o.o) != 3 && w > 0.3f;
+    case FPDF_PAGEOBJ_IMAGE: return deep || area < page * 0.92f;
+    case FPDF_PAGEOBJ_PATH: return deep || area < page * 0.2f;
+    case FPDF_PAGEOBJ_FORM: return deep || area < page * 0.7f;
+    default: return false;
+  }
+}
+
+static void FillSel(ESel* s, int page, const TagObj& o) {
+  *s = ESel();
+  s->page = page;
+  if (o.tagged) { s->kind = 1; s->grp = o.grp; s->sub = o.kind; }
+  else { s->kind = 3; s->obj = o.idx; s->sub = o.kind; }
+}
+
+bool EdHitTest(Tab* t, int page, float x, float y, bool markup, EdHit* out, bool deep) {
   if (!t || !t->doc || page < 0 || page >= t->doc->npages) return false;
   Doc* d = t->doc.get();
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
@@ -307,19 +409,76 @@ bool EdHitTest(Tab* t, int page, float x, float y, bool markup, EdHit* out) {
     }
   }
   std::vector<TagObj> v;
-  EnumTagged(pg, xf, &v);
+  EnumAll(pg, xf, &v, false);
+  float pw = d->pw[page], ph = d->ph[page];
+  int found = -1;
   for (int i = (int)v.size() - 1; i >= 0; i--) {
     const TagObj& o = v[i];
-    if (x >= o.box.l - tol && x <= o.box.r + tol && y >= o.box.t - tol && y <= o.box.b + tol) {
-      if (out) {
-        bool any;
-        out->sel = ESel(); out->sel.page = page; out->sel.kind = 1; out->sel.grp = o.grp; out->sel.sub = o.kind;
-        out->box = UnionBox(v, o.grp, &any);
-      }
-      return true;
+    if (!RawSelectable(o, pw, ph, deep)) continue;
+    float tl = o.type == FPDF_PAGEOBJ_TEXT && !o.tagged ? 1.0f : tol;
+    if (x >= o.box.l - tl && x <= o.box.r + tl && y >= o.box.t - tl && y <= o.box.b + tl) { found = i; break; }
+  }
+  if (found < 0) return false;
+  if (!v[found].tagged && v[found].type == FPDF_PAGEOBJ_TEXT) {
+    // lines of text have boxes that overlap a little: take the line whose middle is nearest to the pointer
+    float best = 1e9f;
+    for (int i = (int)v.size() - 1; i >= 0; i--) {
+      const TagObj& o = v[i];
+      if (o.tagged || o.type != FPDF_PAGEOBJ_TEXT || !RawSelectable(o, pw, ph, deep)) continue;
+      if (!(x >= o.box.l - 1.0f && x <= o.box.r + 1.0f && y >= o.box.t - 1.0f && y <= o.box.b + 1.0f)) continue;
+      float dist = fabsf(y - (o.box.t + o.box.b) * 0.5f);
+      if (dist < best - 0.01f) { best = dist; found = i; }
     }
   }
-  return false;
+  const TagObj& o = v[found];
+  if (out) {
+    FillSel(&out->sel, page, o);
+    if (o.tagged) { bool any; out->box = UnionBox(v, o.grp, &any); } else out->box = o.box;
+  }
+  return true;
+}
+
+bool EdMarquee(Tab* t, int page, FRect r, ESet* out) {
+  out->clear();
+  if (!t || !t->doc || page < 0 || page >= t->doc->npages) return false;
+  Doc* d = t->doc.get();
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  FPDF_PAGE pg = PageOf(d, page);
+  if (!pg) return false;
+  PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+  auto touches = [&](const FRect& b) { return b.l <= r.r && b.r >= r.l && b.t <= r.b && b.b >= r.t; };
+  int na = PA.FPDFPage_GetAnnotCount(pg);
+  for (int i = 0; i < na; i++) {
+    FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, i);
+    if (!an) continue;
+    int sub = PA.FPDFAnnot_GetSubtype(an);
+    FS_RECTF rc;
+    bool ok = IsEditableAnnot(sub, false) && PA.FPDFAnnot_GetRect(an, &rc);
+    PA.FPDFPage_CloseAnnot(an);
+    if (!ok) continue;
+    FRect b = TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top);
+    if (!touches(b)) continue;
+    ESel s;
+    s.page = page; s.kind = 2; s.annot = i; s.sub = sub;
+    out->push_back(s);
+  }
+  std::vector<TagObj> v;
+  EnumAll(pg, xf, &v, false);
+  std::set<int> seen;
+  float pw = d->pw[page], ph = d->ph[page];
+  for (auto& o : v) {
+    if (!RawSelectable(o, pw, ph, false)) continue;
+    if (o.tagged) {
+      bool any;
+      FRect u = UnionBox(v, o.grp, &any);
+      if (!touches(u) || seen.count(o.grp)) continue;
+      seen.insert(o.grp);
+    } else if (!touches(o.box)) continue;
+    ESel s;
+    FillSel(&s, page, o);
+    out->push_back(s);
+  }
+  return !out->empty();
 }
 
 bool EdSelBox(Tab* t, const ESel& s, FRect* box) {
@@ -339,6 +498,14 @@ bool EdSelBox(Tab* t, const ESel& s, FRect* box) {
     *box = TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top);
     return true;
   }
+  if (s.kind == 3) {
+    if (s.obj < 0 || s.obj >= PA.FPDFPage_CountObjects(pg)) return false;
+    FPDF_PAGEOBJECT o = PA.FPDFPage_GetObject(pg, s.obj);
+    float l, b, r, tp;
+    if (!o || !PA.FPDFPageObj_GetBounds(o, &l, &b, &r, &tp)) return false;
+    *box = TlBoxOfPdf(xf, l, b, r, tp);
+    return true;
+  }
   std::vector<TagObj> v;
   EnumTagged(pg, xf, &v);
   bool any;
@@ -348,24 +515,59 @@ bool EdSelBox(Tab* t, const ESel& s, FRect* box) {
   return true;
 }
 
+bool EdSetBox(Tab* t, const ESet& s, FRect* box) {
+  bool have = false;
+  for (auto& it : s) {
+    FRect b;
+    if (!EdSelBox(t, it, &b)) continue;
+    *box = have ? UnionRect(*box, b) : b;
+    have = true;
+  }
+  return have;
+}
+
+// kind of the objects behind a selection: EK_*, or 0 for a mixture / annotation
 int EdSelObjKind(Tab* t, const ESel& s) {
-  if (!t || !t->doc || s.kind != 1) return 0;
+  if (!t || !t->doc || (s.kind != 1 && s.kind != 3)) return 0;
   Doc* d = t->doc.get();
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
   FPDF_PAGE pg = PageOf(d, s.page);
   if (!pg) return 0;
+  if (s.kind == 3) {
+    FPDF_PAGEOBJECT o = s.obj >= 0 && s.obj < PA.FPDFPage_CountObjects(pg) ? PA.FPDFPage_GetObject(pg, s.obj) : nullptr;
+    return o ? KindOfType(PA.FPDFPageObj_GetType(o)) : 0;
+  }
   PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
   std::vector<TagObj> v;
   EnumTagged(pg, xf, &v);
-  for (auto& o : v) if (o.grp == s.grp) return o.kind;
-  return 0;
+  int k = 0;
+  for (auto& o : v) {
+    if (o.grp != s.grp) continue;
+    if (k == 0) k = o.kind;
+    else if (k != o.kind) return 0;
+  }
+  return k;
+}
+static float TextEffSize(FPDF_PAGEOBJECT o) {
+  float fs = 0;
+  PA.FPDFTextObj_GetFontSize(o, &fs);
+  FS_MATRIX m = {1, 0, 0, 1, 0, 0};
+  PA.FPDFPageObj_GetMatrix(o, &m);
+  double sc = hypot((double)m.a, (double)m.b);
+  if (sc < 1e-6) sc = 1;
+  return (float)(fs * sc);
 }
 int EdSelTextSize(Tab* t, const ESel& s) {
-  if (!t || !t->doc || s.kind != 1) return 0;
+  if (!t || !t->doc || (s.kind != 1 && s.kind != 3)) return 0;
   Doc* d = t->doc.get();
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
   FPDF_PAGE pg = PageOf(d, s.page);
   if (!pg) return 0;
+  if (s.kind == 3) {
+    FPDF_PAGEOBJECT o = s.obj >= 0 && s.obj < PA.FPDFPage_CountObjects(pg) ? PA.FPDFPage_GetObject(pg, s.obj) : nullptr;
+    if (!o || PA.FPDFPageObj_GetType(o) != FPDF_PAGEOBJ_TEXT) return 0;
+    return (int)lroundf(TextEffSize(o));
+  }
   PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
   std::vector<TagObj> v;
   EnumTagged(pg, xf, &v);
@@ -535,47 +737,86 @@ static bool AdoptObjects(Doc* d, int page, const std::function<bool(FPDF_PAGE tm
   return g;
 }
 
-bool EdAddText(Tab* t, int page, float x, float y, const ws& text, const ws& font, int size, COLORREF c, ESel* out) {
-  if (!t || !t->doc || page < 0 || page >= t->doc->npages || text.empty()) return false;
-  // lines
-  std::vector<ws> lines;
-  {
-    ws cur;
-    for (wchar_t ch : text) {
-      if (ch == L'\r') continue;
-      if (ch == L'\n') { lines.push_back(cur); cur.clear(); } else cur += ch;
-    }
-    lines.push_back(cur);
+// map of the page points (top-left origin) given by `tl`, written as a PDF-space matrix for FPDFPageObj_Transform
+static FS_MATRIX PdfAffine(const PXf& xf, const std::function<void(double, double, double*, double*)>& tl) {
+  auto map = [&](double px, double py, double* qx, double* qy) {
+    double x, y, x2, y2;
+    xf.ToTl(px, py, &x, &y);
+    tl(x, y, &x2, &y2);
+    xf.ToPdf(x2, y2, qx, qy);
+  };
+  double x0, y0, x1, y1, x2, y2;
+  map(0, 0, &x0, &y0);
+  map(1, 0, &x1, &y1);
+  map(0, 1, &x2, &y2);
+  FS_MATRIX m = {(float)(x1 - x0), (float)(y1 - y0), (float)(x2 - x0), (float)(y2 - y0), (float)x0, (float)y0};
+  return m;
+}
+// clockwise turn by `deg` around (cx, cy) in page points
+static FS_MATRIX RotMatrix(const PXf& xf, double cx, double cy, double deg) {
+  double a = deg * 3.14159265358979323846 / 180.0, cs = cos(a), sn = sin(a);
+  return PdfAffine(xf, [=](double x, double y, double* ox, double* oy) {
+    *ox = cx + (x - cx) * cs - (y - cy) * sn;
+    *oy = cy + (x - cx) * sn + (y - cy) * cs;
+  });
+}
+static void SetObjAlpha(FPDF_PAGEOBJECT o, int type, int pct) {
+  unsigned r = 0, g = 0, b = 0, a = 255;
+  unsigned al = (unsigned)min(max(pct, 0), 100) * 255 / 100;
+  if (PA.FPDFPageObj_GetFillColor(o, &r, &g, &b, &a)) PA.FPDFPageObj_SetFillColor(o, r, g, b, al);
+  else PA.FPDFPageObj_SetFillColor(o, 0, 0, 0, al);
+  if (type == FPDF_PAGEOBJ_PATH && PA.FPDFPageObj_GetStrokeColor(o, &r, &g, &b, &a)) PA.FPDFPageObj_SetStrokeColor(o, r, g, b, al);
+}
+
+// text lines as objects on the scratch page; line i has its baseline at base0 + i*pitch (page points, top-left origin)
+static bool BuildTextLines(Doc* d, FPDF_PAGE tmp, const PXf& xf, float x, float base0, float pitch, const std::vector<ws>& lines, const ws& family, int style,
+                           float size, COLORREF c, int grp, int opacity) {
+  FPDF_FONT f = LoadDocFont(d, family, style);
+  if (!f) return false;
+  int fam = FamilyIndex(family);
+  if (fam < 0) fam = 0;
+  int made = 0;
+  for (size_t i = 0; i < lines.size(); i++) {
+    if (lines[i].empty()) continue;
+    FPDF_PAGEOBJECT o = PA.FPDFPageObj_CreateTextObj(d->h, f, size);
+    if (!o) return false;
+    if (!PA.FPDFText_SetText(o, (FPDF_WIDESTRING)lines[i].c_str())) { PA.FPDFPageObj_Destroy(o); return false; }
+    unsigned r, g, b;
+    ColorOf(c, &r, &g, &b);
+    PA.FPDFPageObj_SetFillColor(o, r, g, b, (unsigned)min(max(opacity, 0), 100) * 255 / 100);
+    double px, py;
+    xf.ToPdf(x, base0 + pitch * (double)i, &px, &py);
+    FS_MATRIX m = {(float)xf.a, (float)xf.b, (float)-xf.c, (float)-xf.d, (float)px, (float)py};
+    PA.FPDFPageObj_SetMatrix(o, &m);
+    TagObject(d, o, EK_TEXT, grp, (int)lroundf(size * 10), fam * 4 + (style & 3));
+    if (opacity != 100) SetMarkInt(d, o, "a", opacity);
+    PA.FPDFPage_InsertObject(tmp, o);
+    made++;
   }
+  return made > 0;
+}
+
+static std::vector<ws> SplitLines(const ws& text) {
+  std::vector<ws> lines;
+  ws cur;
+  for (wchar_t ch : text) {
+    if (ch == L'\r') continue;
+    if (ch == L'\n') { lines.push_back(cur); cur.clear(); } else cur += ch;
+  }
+  lines.push_back(cur);
+  return lines;
+}
+
+bool EdAddText(Tab* t, int page, float x, float y, const ws& text, const ws& font, int size, COLORREF c, ESel* out, int style) {
+  if (!t || !t->doc || page < 0 || page >= t->doc->npages || text.empty()) return false;
+  std::vector<ws> lines = SplitLines(text);
   int grp = NewGroupId();
   bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
     FPDF_PAGE pg = PageOf(d, page);
     if (!pg) return false;
     PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
     return AdoptObjects(d, page, [&](FPDF_PAGE tmp) {
-      FPDF_FONT f = LoadDocFont(d, font);
-      if (!f) return false;
-      float lh = size * 1.2f;
-      int made = 0;
-      for (size_t i = 0; i < lines.size(); i++) {
-        if (lines[i].empty()) continue;
-        FPDF_PAGEOBJECT o = PA.FPDFPageObj_CreateTextObj(d->h, f, (float)size);
-        if (!o) return false;
-        if (!PA.FPDFText_SetText(o, (FPDF_WIDESTRING)lines[i].c_str())) { PA.FPDFPageObj_Destroy(o); return false; }
-        unsigned r, g, b;
-        ColorOf(c, &r, &g, &b);
-        PA.FPDFPageObj_SetFillColor(o, r, g, b, 255);
-        // baseline of line i in page points; the text axes follow the page orientation
-        double bx = x, by = y + size * 0.88 + lh * (double)i;
-        double px, py;
-        xf.ToPdf(bx, by, &px, &py);
-        FS_MATRIX m = {(float)xf.a, (float)xf.b, (float)-xf.c, (float)-xf.d, (float)px, (float)py};
-        PA.FPDFPageObj_SetMatrix(o, &m);
-        TagObject(d, o, EK_TEXT, grp, size * 10);
-        PA.FPDFPage_InsertObject(tmp, o);
-        made++;
-      }
-      return made > 0;
+      return BuildTextLines(d, tmp, xf, x, y + size * 0.88f, size * 1.2f, lines, font, style, (float)size, c, grp, 100);
     });
   });
   if (ok && out) { *out = ESel(); out->page = page; out->kind = 1; out->grp = grp; out->sub = EK_TEXT; }
@@ -623,6 +864,27 @@ static FPDF_BITMAP LoadBitmapBGRA(const ws& file) {
   return bm;
 }
 
+// a picture object on the scratch page, filling `r` (page points) and turned clockwise by rotDeg around its centre
+static bool BuildImage(Doc* d, FPDF_PAGE tmp, const PXf& xf, FPDF_BITMAP bm, const FRect& r, double rotDeg, int grp, int opacity) {
+  FPDF_PAGEOBJECT o = PA.FPDFPageObj_NewImageObj(d->h);
+  if (!o) return false;
+  FPDF_PAGE pages[1] = {tmp};
+  if (!PA.FPDFImageObj_SetBitmap(pages, 1, o, bm)) { PA.FPDFPageObj_Destroy(o); return false; }
+  double w = r.r - r.l, h = r.b - r.t, px, py;
+  xf.ToPdf(r.l, r.b, &px, &py);                       // lower left corner of the picture on the screen
+  FS_MATRIX m = {(float)(xf.a * w), (float)(xf.b * w), (float)(-xf.c * h), (float)(-xf.d * h), (float)px, (float)py};
+  PA.FPDFPageObj_SetMatrix(o, &m);
+  if (fabs(rotDeg) > 0.01) {
+    FS_MATRIX rm = RotMatrix(xf, (r.l + r.r) * 0.5, (r.t + r.b) * 0.5, rotDeg);
+    PA.FPDFPageObj_Transform(o, rm.a, rm.b, rm.c, rm.d, rm.e, rm.f);
+  }
+  TagObject(d, o, EK_IMAGE, grp, 0, 0);
+  if (fabs(rotDeg) > 0.01) SetMarkInt(d, o, "r", ((int)lround(rotDeg * 10) % 3600 + 3600) % 3600);
+  if (opacity != 100) { SetObjAlpha(o, FPDF_PAGEOBJ_IMAGE, opacity); SetMarkInt(d, o, "a", opacity); }
+  PA.FPDFPage_InsertObject(tmp, o);
+  return true;
+}
+
 bool EdAddImage(Tab* t, int page, FRect r, const ws& file, ESel* out) {
   if (!t || !t->doc || page < 0 || page >= t->doc->npages) return false;
   int grp = NewGroupId();
@@ -633,38 +895,29 @@ bool EdAddImage(Tab* t, int page, FRect r, const ws& file, ESel* out) {
     return AdoptObjects(d, page, [&](FPDF_PAGE tmp) {
       FPDF_BITMAP bm = LoadBitmapBGRA(file);
       if (!bm) return false;
-      FPDF_PAGEOBJECT o = PA.FPDFPageObj_NewImageObj(d->h);
-      if (!o) { PA.FPDFBitmap_Destroy(bm); return false; }
-      FPDF_PAGE pages[1] = {tmp};
-      bool good = PA.FPDFImageObj_SetBitmap(pages, 1, o, bm) != 0;
+      bool good = BuildImage(d, tmp, xf, bm, r, 0, grp, 100);
       PA.FPDFBitmap_Destroy(bm);
-      if (!good) { PA.FPDFPageObj_Destroy(o); return false; }
-      double w = r.r - r.l, h = r.b - r.t, px, py;
-      xf.ToPdf(r.l, r.b, &px, &py);                       // lower left corner of the picture on the screen
-      FS_MATRIX m = {(float)(xf.a * w), (float)(xf.b * w), (float)(-xf.c * h), (float)(-xf.d * h), (float)px, (float)py};
-      PA.FPDFPageObj_SetMatrix(o, &m);
-      TagObject(d, o, EK_IMAGE, grp, 0);
-      PA.FPDFPage_InsertObject(tmp, o);
-      return true;
+      return good;
     });
   });
   if (ok && out) { *out = ESel(); out->page = page; out->kind = 1; out->grp = grp; out->sub = EK_IMAGE; }
   return ok;
 }
 
-
 // a small premultiplied picture of an image object, for the drag preview (upright pages only)
-HBITMAP EdImagePreview(Tab* t, const ESel& s, int* ow, int* oh) {
-  if (!t || !t->doc || s.kind != 1) return nullptr;
+HBITMAP EdImagePreview(Tab* t, const ESet& set, int* ow, int* oh) {
+  if (!t || !t->doc || set.size() != 1 || (set[0].kind != 1 && set[0].kind != 3)) return nullptr;
+  const ESel& s = set[0];
   Doc* d = t->doc.get();
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
   FPDF_PAGE pg = PageOf(d, s.page);
   if (!pg || PA.FPDFPage_GetRotation(pg) != 0) return nullptr;
   PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
   std::vector<TagObj> v;
-  EnumTagged(pg, xf, &v);
+  EnumAll(pg, xf, &v, false);
   for (auto& o : v) {
-    if (o.grp != s.grp || o.kind != EK_IMAGE) continue;
+    bool mine = s.kind == 1 ? (o.tagged && o.grp == s.grp) : (o.idx == s.obj);
+    if (!mine || o.type != FPDF_PAGEOBJ_IMAGE) continue;
     FPDF_BITMAP bm = PA.FPDFImageObj_GetRenderedBitmap(d->h, pg, o.o);
     if (!bm) return nullptr;
     int w = PA.FPDFBitmap_GetWidth(bm), h = PA.FPDFBitmap_GetHeight(bm), stride = PA.FPDFBitmap_GetStride(bm), fmt = PA.FPDFBitmap_GetFormat(bm);
@@ -707,131 +960,240 @@ HBITMAP EdImagePreview(Tab* t, const ESel& s, int* ow, int* oh) {
 static FS_MATRIX BoxMatrix(const PXf& xf, const FRect& ob, const FRect& nb) {
   double sx = (ob.r - ob.l) > 1e-6 ? (nb.r - nb.l) / (ob.r - ob.l) : 1;
   double sy = (ob.b - ob.t) > 1e-6 ? (nb.b - nb.t) / (ob.b - ob.t) : 1;
-  auto map = [&](double px, double py, double* qx, double* qy) {
-    double x, y;
-    xf.ToTl(px, py, &x, &y);
-    x = nb.l + (x - ob.l) * sx;
-    y = nb.t + (y - ob.t) * sy;
-    xf.ToPdf(x, y, qx, qy);
-  };
-  double x0, y0, x1, y1, x2, y2;
-  map(0, 0, &x0, &y0);
-  map(1, 0, &x1, &y1);
-  map(0, 1, &x2, &y2);
-  FS_MATRIX m = {(float)(x1 - x0), (float)(y1 - y0), (float)(x2 - x0), (float)(y2 - y0), (float)x0, (float)y0};
-  return m;
-}
-
-bool EdTransformSel(Tab* t, const ESel& s, FRect ob, FRect nb) {
-  if (!t || !t->doc || s.kind == 0) return false;
-  return EdEdit(t, false, {s.page}, [&](Doc* d) {
-    FPDF_PAGE pg = PageOf(d, s.page);
-    if (!pg) return false;
-    PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
-    if (s.kind == 2) {
-      FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, s.annot);
-      if (!an) return false;
-      float l, b, r, tp;
-      PdfRectOfTl(xf, nb, &l, &b, &r, &tp);
-      FS_RECTF rc = {l, tp, r, b};
-      bool ok = PA.FPDFAnnot_SetRect(an, &rc) != 0;
-      PA.FPDFPage_CloseAnnot(an);
-      return ok;
-    }
-    FS_MATRIX m = BoxMatrix(xf, ob, nb);
-    std::vector<TagObj> v;
-    EnumTagged(pg, xf, &v);
-    double sc = (ob.r - ob.l) > 1e-6 ? (nb.r - nb.l) / (ob.r - ob.l) : 1;
-    int moved = 0;
-    for (auto& o : v) {
-      if (o.grp != s.grp) continue;
-      PA.FPDFPageObj_Transform(o.o, m.a, m.b, m.c, m.d, m.e, m.f);
-      if (o.kind == EK_TEXT && fabs(sc - 1.0) > 1e-4) {
-        FPDF_PAGEOBJECTMARK mk = FindTagMark(o.o);
-        if (mk) PA.FPDFPageObjMark_SetIntParam(d->h, o.o, mk, "s", (int)lround(o.extra * sc));
-      }
-      moved++;
-    }
-    if (!moved) return false;
-    return PA.FPDFPage_GenerateContent(pg) != 0;
+  return PdfAffine(xf, [=](double x, double y, double* ox, double* oy) {
+    *ox = nb.l + (x - ob.l) * sx;
+    *oy = nb.t + (y - ob.t) * sy;
   });
 }
 
-bool EdSetTextSize(Tab* t, const ESel& s, int size) {
-  if (!t || !t->doc || s.kind != 1) return false;
+// what a selection stands for on its page right now
+struct Resolved {
+  std::vector<TagObj> mem;          // member page objects, in stacking order
+  std::vector<int> annots;          // annotation indices
+  std::set<int> grps;
   FRect box;
-  if (!EdSelBox(t, s, &box)) return false;
-  int cur = EdSelTextSize(t, s);
-  if (cur <= 0 || cur == size) return false;
-  double k = (double)size / cur;
-  FRect nb = box;
-  nb.r = box.l + (box.r - box.l) * (float)k;
-  nb.b = box.t + (box.b - box.t) * (float)k;
-  return EdTransformSel(t, s, box, nb);
+  bool haveBox = false;
+  void Add(const FRect& b) { box = haveBox ? UnionRect(box, b) : b; haveBox = true; }
+};
+
+// adopt = true: existing objects of the page get the editor's tag (they become ordinary editor objects) and `set` is rewritten to say so
+static bool Resolve(Doc* d, FPDF_PAGE pg, const PXf& xf, ESet& set, bool adopt, Resolved* R) {
+  int cnt = PA.FPDFPage_CountObjects(pg);
+  if (adopt) {
+    for (auto& s : set) {
+      if (s.kind != 3) continue;
+      FPDF_PAGEOBJECT o = s.obj >= 0 && s.obj < cnt ? PA.FPDFPage_GetObject(pg, s.obj) : nullptr;
+      if (!o) return false;
+      int type = PA.FPDFPageObj_GetType(o), kind = KindOfType(type), extra = 0, font = 0;
+      if (type == FPDF_PAGEOBJ_TEXT) {
+        extra = (int)lroundf(TextEffSize(o) * 10);
+        int fam, st;
+        MapPdfFont(PA.FPDFTextObj_GetFont(o), &fam, &st);
+        font = fam * 4 + st;
+      }
+      int g = NewGroupId();
+      TagObject(d, o, kind, g, extra, font);
+      s.kind = 1; s.grp = g; s.sub = kind; s.obj = -1;
+    }
+  }
+  std::set<int> raw;
+  for (auto& s : set) {
+    if (s.kind == 1) R->grps.insert(s.grp);
+    else if (s.kind == 3) raw.insert(s.obj);
+    else if (s.kind == 2) R->annots.push_back(s.annot);
+  }
+  std::vector<TagObj> all;
+  EnumAll(pg, xf, &all, !raw.empty() ? false : true);
+  for (auto& o : all) {
+    if ((o.tagged && R->grps.count(o.grp)) || (!o.tagged && raw.count(o.idx))) { R->mem.push_back(o); R->Add(o.box); }
+  }
+  std::vector<int> okAnnots;
+  for (int a : R->annots) {
+    FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, a);
+    if (!an) continue;
+    FS_RECTF rc;
+    bool ok = PA.FPDFAnnot_GetRect(an, &rc) != 0;
+    PA.FPDFPage_CloseAnnot(an);
+    if (!ok) continue;
+    okAnnots.push_back(a);
+    R->Add(TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top));
+  }
+  R->annots = okAnnots;
+  return !R->mem.empty() || !R->annots.empty();
 }
 
-bool EdDeleteSel(Tab* t, const ESel& s) {
-  if (!t || !t->doc || s.kind == 0) return false;
-  return EdEdit(t, false, {s.page}, [&](Doc* d) {
-    FPDF_PAGE pg = PageOf(d, s.page);
+static bool SetPageOf(const ESet& s, int* page) {
+  if (s.empty() || s[0].page < 0) return false;
+  *page = s[0].page;
+  return true;
+}
+
+bool EdTransformSet(Tab* t, ESet& s, FRect ob, FRect nb) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page) || page >= t->doc->npages) return false;
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
     if (!pg) return false;
-    if (s.kind == 2) return PA.FPDFPage_RemoveAnnot(pg, s.annot) != 0;
-    PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
-    std::vector<TagObj> v;
-    EnumTagged(pg, xf, &v);
-    int removed = 0;
-    for (int i = (int)v.size() - 1; i >= 0; i--) {
-      if (v[i].grp != s.grp) continue;
-      if (PA.FPDFPage_RemoveObject(pg, v[i].o)) { PA.FPDFPageObj_Destroy(v[i].o); removed++; }
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R)) return false;
+    double sx = (ob.r - ob.l) > 1e-6 ? (nb.r - nb.l) / (ob.r - ob.l) : 1;
+    double sy = (ob.b - ob.t) > 1e-6 ? (nb.b - nb.t) / (ob.b - ob.t) : 1;
+    FS_MATRIX m = BoxMatrix(xf, ob, nb);
+    for (auto& o : R.mem) {
+      PA.FPDFPageObj_Transform(o.o, m.a, m.b, m.c, m.d, m.e, m.f);
+      if (o.kind == EK_TEXT && fabs(sx - 1.0) > 1e-4) SetMarkInt(d, o.o, "s", (int)lround(o.extra * sx));
     }
-    if (!removed) return false;
+    for (int a : R.annots) {
+      FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, a);
+      if (!an) continue;
+      FS_RECTF rc;
+      if (PA.FPDFAnnot_GetRect(an, &rc)) {
+        FRect b = TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top);
+        FRect n = {(float)(nb.l + (b.l - ob.l) * sx), (float)(nb.t + (b.t - ob.t) * sy), (float)(nb.l + (b.r - ob.l) * sx), (float)(nb.t + (b.b - ob.t) * sy)};
+        float l, bt, r, tp;
+        PdfRectOfTl(xf, n, &l, &bt, &r, &tp);
+        FS_RECTF nr = {l, tp, r, bt};
+        PA.FPDFAnnot_SetRect(an, &nr);
+      }
+      PA.FPDFPage_CloseAnnot(an);
+    }
+    if (!R.mem.empty()) return PA.FPDFPage_GenerateContent(pg) != 0;
+    return true;
+  });
+  if (ok) s = work;
+  return ok;
+}
+bool EdTransformSel(Tab* t, const ESel& s, FRect ob, FRect nb) { ESet set{s}; return EdTransformSet(t, set, ob, nb); }
+
+// text size: every text group is scaled around its own top-left corner
+bool EdSetTextSizeSet(Tab* t, ESet& s, int size) {
+  int page;
+  if (!t || !t->doc || size < 1 || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R)) return false;
+    int changed = 0;
+    for (int g : R.grps) {
+      FRect ub;
+      bool have = false;
+      int cur = 0;
+      for (auto& o : R.mem) {
+        if (o.grp != g || o.kind != EK_TEXT) continue;
+        ub = have ? UnionRect(ub, o.box) : o.box;
+        have = true;
+        if (!cur) cur = (o.extra + 5) / 10;
+      }
+      if (!have || cur <= 0 || cur == size) continue;
+      double k = (double)size / cur;
+      FRect nb = {ub.l, ub.t, (float)(ub.l + (ub.r - ub.l) * k), (float)(ub.t + (ub.b - ub.t) * k)};
+      FS_MATRIX m = BoxMatrix(xf, ub, nb);
+      for (auto& o : R.mem) {
+        if (o.grp != g || o.kind != EK_TEXT) continue;
+        PA.FPDFPageObj_Transform(o.o, m.a, m.b, m.c, m.d, m.e, m.f);
+        SetMarkInt(d, o.o, "s", (int)lround(o.extra * k));
+      }
+      changed++;
+    }
+    if (!changed) return false;
     return PA.FPDFPage_GenerateContent(pg) != 0;
   });
+  if (ok) s = work;
+  return ok;
 }
+bool EdSetTextSize(Tab* t, const ESel& s, int size) { ESet set{s}; return EdSetTextSizeSet(t, set, size); }
 
-bool EdSetColorSel(Tab* t, const ESel& s, COLORREF c) {
-  if (!t || !t->doc || s.kind == 0) return false;
-  return EdEdit(t, false, {s.page}, [&](Doc* d) {
-    FPDF_PAGE pg = PageOf(d, s.page);
+bool EdDeleteSet(Tab* t, const ESet& s) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  return EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, false, &R)) return false;
+    std::vector<int> an = R.annots;
+    std::sort(an.begin(), an.end());
+    for (int i = (int)an.size() - 1; i >= 0; i--) PA.FPDFPage_RemoveAnnot(pg, an[i]);
+    int removed = 0;
+    for (int i = (int)R.mem.size() - 1; i >= 0; i--) {
+      if (PA.FPDFPage_RemoveObject(pg, R.mem[i].o)) { PA.FPDFPageObj_Destroy(R.mem[i].o); removed++; }
+    }
+    if (removed) return PA.FPDFPage_GenerateContent(pg) != 0;
+    return !an.empty();
+  });
+}
+bool EdDeleteSel(Tab* t, const ESel& s) { ESet set{s}; return EdDeleteSet(t, set); }
+
+bool EdSetColorSet(Tab* t, ESet& s, COLORREF c) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
     if (!pg) return false;
     unsigned r, g, b;
     ColorOf(c, &r, &g, &b);
-    if (s.kind == 2) {
-      FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, s.annot);
-      if (!an) return false;
-      // the stored appearance has the old colour in it: re-setting the colour drops it and PDFium builds a new one on load
-      bool ok = PA.FPDFAnnot_SetColor(an, FPDFANNOT_COLORTYPE_Color, r, g, b, 255) != 0;
-      PA.FPDFPage_CloseAnnot(an);
-      return ok;
-    }
-    PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
-    std::vector<TagObj> v;
-    EnumTagged(pg, xf, &v);
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R)) return false;
     int n = 0;
-    for (auto& o : v) if (o.grp == s.grp && o.kind == EK_TEXT) { PA.FPDFPageObj_SetFillColor(o.o, r, g, b, 255); n++; }
+    for (int a : R.annots) {
+      FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, a);
+      if (!an) continue;
+      // the stored appearance has the old colour in it: re-setting the colour drops it and PDFium builds a new one on load
+      if (PA.FPDFAnnot_SetColor(an, FPDFANNOT_COLORTYPE_Color, r, g, b, 255)) n++;
+      PA.FPDFPage_CloseAnnot(an);
+    }
+    for (auto& o : R.mem) {
+      unsigned cr, cg, cb, ca = 255;
+      if (o.type == FPDF_PAGEOBJ_TEXT) {
+        PA.FPDFPageObj_GetFillColor(o.o, &cr, &cg, &cb, &ca);
+        PA.FPDFPageObj_SetFillColor(o.o, r, g, b, ca);
+        n++;
+      } else if (o.type == FPDF_PAGEOBJ_PATH) {
+        int fm = 0;
+        FPDF_BOOL stroke = 0;
+        PA.FPDFPath_GetDrawMode(o.o, &fm, &stroke);
+        if (fm) { PA.FPDFPageObj_GetFillColor(o.o, &cr, &cg, &cb, &ca); PA.FPDFPageObj_SetFillColor(o.o, r, g, b, ca); }
+        if (stroke || !fm) { PA.FPDFPageObj_GetStrokeColor(o.o, &cr, &cg, &cb, &ca); PA.FPDFPageObj_SetStrokeColor(o.o, r, g, b, ca); }
+        n++;
+      }
+    }
     if (!n) return false;
-    return PA.FPDFPage_GenerateContent(pg) != 0;
+    if (!R.mem.empty()) return PA.FPDFPage_GenerateContent(pg) != 0;
+    return true;
   });
+  if (ok) s = work;
+  return ok;
 }
+bool EdSetColorSel(Tab* t, const ESel& s, COLORREF c) { ESet set{s}; return EdSetColorSet(t, set, c); }
 
 // layers: 0 to front, 1 one step forward (above the next object it overlaps), 2 one step back, 3 to back
-bool EdZOrder(Tab* t, const ESel& s, int op) {
-  if (!t || !t->doc || s.kind != 1) return false;
-  bool changed = false;
-  bool ok = EdEdit(t, false, {s.page}, [&](Doc* d) {
-    FPDF_PAGE pg = PageOf(d, s.page);
+bool EdZOrderSet(Tab* t, ESet& s, int op) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
     if (!pg) return false;
-    PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
-    std::vector<TagObj> v;
-    EnumTagged(pg, xf, &v);
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R)) return false;
     std::vector<int> S;
-    for (auto& o : v) if (o.grp == s.grp) S.push_back(o.idx);
+    for (auto& o : R.mem) S.push_back(o.idx);
     if (S.empty()) return false;
     int n = PA.FPDFPage_CountObjects(pg);
     std::vector<FPDF_PAGEOBJECT> objs(n);
     for (int i = 0; i < n; i++) objs[i] = PA.FPDFPage_GetObject(pg, i);
     std::set<int> inS(S.begin(), S.end());
-    // bounds of the group (pdf space)
+    // bounds of the selection (pdf space)
     float gl = 1e9f, gb = 1e9f, gr = -1e9f, gt = -1e9f;
     for (int i : S) {
       float l, b, r, tp;
@@ -843,9 +1205,7 @@ bool EdZOrder(Tab* t, const ESel& s, int op) {
       if (!PA.FPDFPageObj_GetBounds(objs[i], &l, &b, &r, &tp)) return false;
       return l < gr && r > gl && b < gt && tp > gb;
     };
-    int below = 0;    // members of S under a given index
     auto countBelow = [&](int idx) { int c = 0; for (int i : S) if (i < idx) c++; return c; };
-    (void)below;
     int p0;   // position among the others where the group goes
     int others = n - (int)S.size();
     if (op == 0) p0 = others;
@@ -867,10 +1227,731 @@ bool EdZOrder(Tab* t, const ESel& s, int op) {
     if (same) return true;
     for (int k = (int)S.size() - 1; k >= 0; k--) PA.FPDFPage_RemoveObject(pg, objs[S[k]]);
     for (size_t k = 0; k < S.size(); k++) PA.FPDFPage_InsertObjectAtIndex(pg, objs[S[k]], (size_t)(p0 + (int)k));
-    changed = true;
     return PA.FPDFPage_GenerateContent(pg) != 0;
   });
-  (void)changed;
+  if (ok) s = work;
+  return ok;
+}
+bool EdZOrder(Tab* t, const ESel& s, int op) { ESet set{s}; return EdZOrderSet(t, set, op); }
+
+// ---- groups
+bool EdGroup(Tab* t, ESet& s) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  for (auto& it : s) if (it.kind == 2) { ShowToast(L"Рисунки и фигуры нельзя объединять в группу"); return false; }
+  if (s.size() < 2) { ShowToast(L"Выделите несколько объектов (рамкой или с клавишей Shift)"); return false; }
+  ESet work = s;
+  int ng = NewGroupId();
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R) || R.mem.empty()) return false;
+    for (auto& o : R.mem) {
+      SetMarkInt(d, o.o, "u", o.unit);
+      SetMarkInt(d, o.o, "g", ng);
+    }
+    return PA.FPDFPage_GenerateContent(pg) != 0;
+  });
+  if (ok) {
+    s.clear();
+    ESel g;
+    g.page = page; g.kind = 1; g.grp = ng; g.sub = 0;
+    s.push_back(g);
+  }
+  return ok;
+}
+bool EdUngroup(Tab* t, ESet& s) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  ESet res;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R) || R.mem.empty()) return false;
+    std::set<int> units;
+    bool any = false;
+    for (auto& o : R.mem) {
+      if (o.unit != o.grp) { SetMarkInt(d, o.o, "g", o.unit); any = true; }
+      units.insert(o.unit);
+    }
+    if (!any) return false;
+    for (int u : units) { ESel g; g.page = page; g.kind = 1; g.grp = u; res.push_back(g); }
+    return PA.FPDFPage_GenerateContent(pg) != 0;
+  });
+  if (ok) s = res;
+  else ShowToast(L"Это не группа");
+  return ok;
+}
+
+// ---- align / spread
+bool EdAlign(Tab* t, ESet& s, int op) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved all;
+    if (!Resolve(d, pg, xf, work, true, &all)) return false;
+    // one unit per selected item: its objects or its annotation
+    struct Unit { std::vector<int> mem; int annot = -1; FRect box; double dx = 0, dy = 0; };
+    std::vector<Unit> U;
+    for (auto& it : work) {
+      Unit u;
+      bool have = false;
+      if (it.kind == 1) {
+        for (size_t i = 0; i < all.mem.size(); i++) if (all.mem[i].grp == it.grp) { u.mem.push_back((int)i); u.box = have ? UnionRect(u.box, all.mem[i].box) : all.mem[i].box; have = true; }
+      } else if (it.kind == 2) {
+        FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, it.annot);
+        FS_RECTF rc;
+        if (an && PA.FPDFAnnot_GetRect(an, &rc)) { u.annot = it.annot; u.box = TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top); have = true; }
+        if (an) PA.FPDFPage_CloseAnnot(an);
+      }
+      if (have) U.push_back(u);
+    }
+    if (U.empty()) return false;
+    if (op >= 6 && U.size() < 3) return false;
+    FRect ref = U[0].box;
+    if (U.size() == 1) ref = {0, 0, d->pw[page], d->ph[page]};
+    else for (auto& u : U) ref = UnionRect(ref, u.box);
+    if (op < 6) {
+      for (auto& u : U) {
+        const FRect& b = u.box;
+        switch (op) {
+          case 0: u.dx = ref.l - b.l; break;
+          case 1: u.dx = (ref.l + ref.r) / 2 - (b.l + b.r) / 2; break;
+          case 2: u.dx = ref.r - b.r; break;
+          case 3: u.dy = ref.t - b.t; break;
+          case 4: u.dy = (ref.t + ref.b) / 2 - (b.t + b.b) / 2; break;
+          case 5: u.dy = ref.b - b.b; break;
+        }
+      }
+    } else {
+      bool h = op == 6;
+      std::vector<int> ord(U.size());
+      for (size_t i = 0; i < ord.size(); i++) ord[i] = (int)i;
+      std::sort(ord.begin(), ord.end(), [&](int a, int b) { return h ? U[a].box.l + U[a].box.r < U[b].box.l + U[b].box.r : U[a].box.t + U[a].box.b < U[b].box.t + U[b].box.b; });
+      double total = 0;
+      for (auto& u : U) total += h ? (u.box.r - u.box.l) : (u.box.b - u.box.t);
+      double span = h ? ref.r - ref.l : ref.b - ref.t;
+      double gap = (span - total) / (double)(U.size() - 1);
+      double pos = h ? ref.l : ref.t;
+      for (int i : ord) {
+        Unit& u = U[i];
+        double sz = h ? (u.box.r - u.box.l) : (u.box.b - u.box.t);
+        if (h) u.dx = pos - u.box.l; else u.dy = pos - u.box.t;
+        pos += sz + gap;
+      }
+    }
+    int moved = 0, objs = 0;
+    for (auto& u : U) {
+      if (fabs(u.dx) < 0.01 && fabs(u.dy) < 0.01) continue;
+      FRect nb = {(float)(u.box.l + u.dx), (float)(u.box.t + u.dy), (float)(u.box.r + u.dx), (float)(u.box.b + u.dy)};
+      if (u.annot >= 0) {
+        FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, u.annot);
+        if (an) {
+          float l, bt, r, tp;
+          PdfRectOfTl(xf, nb, &l, &bt, &r, &tp);
+          FS_RECTF nr = {l, tp, r, bt};
+          PA.FPDFAnnot_SetRect(an, &nr);
+          PA.FPDFPage_CloseAnnot(an);
+        }
+      } else {
+        FS_MATRIX m = BoxMatrix(xf, u.box, nb);
+        for (int i : u.mem) { PA.FPDFPageObj_Transform(all.mem[i].o, m.a, m.b, m.c, m.d, m.e, m.f); objs++; }
+      }
+      moved++;
+    }
+    if (!moved) return false;
+    if (objs) return PA.FPDFPage_GenerateContent(pg) != 0;
+    return true;
+  });
+  if (ok) s = work;
+  return ok;
+}
+
+// ---- turning and transparency
+bool EdRotateSet(Tab* t, ESet& s, double deg) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  bool skipped = false;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R) || R.mem.empty()) return false;
+    skipped = !R.annots.empty();
+    FRect ub = R.mem[0].box;
+    for (auto& o : R.mem) ub = UnionRect(ub, o.box);
+    FS_MATRIX m = RotMatrix(xf, (ub.l + ub.r) * 0.5, (ub.t + ub.b) * 0.5, deg);
+    for (auto& o : R.mem) {
+      PA.FPDFPageObj_Transform(o.o, m.a, m.b, m.c, m.d, m.e, m.f);
+      int r = (((o.rot + (int)lround(deg * 10)) % 3600) + 3600) % 3600;
+      SetMarkInt(d, o.o, "r", r);
+    }
+    return PA.FPDFPage_GenerateContent(pg) != 0;
+  });
+  if (ok) s = work;
+  else if (!s.empty()) ShowToast(L"Этот объект нельзя повернуть на произвольный угол");
+  if (ok && skipped) ShowToast(L"Рисунки от руки и фигуры не поворачиваются");
+  return ok;
+}
+
+bool EdSetOpacity(Tab* t, ESet& s, int percent) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  percent = min(max(percent, 0), 100);
+  ESet work = s;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, true, &R) || R.mem.empty()) return false;
+    for (auto& o : R.mem) {
+      SetObjAlpha(o.o, o.type, percent);
+      SetMarkInt(d, o.o, "a", percent);
+    }
+    return PA.FPDFPage_GenerateContent(pg) != 0;
+  });
+  if (ok) s = work;
+  else ShowToast(L"Прозрачность задаётся для текста, картинок и линий; фигуры и рисунки от руки пока не поддерживаются");
+  return ok;
+}
+
+static bool FirstMember(Tab* t, const ESet& s, TagObj* out) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page) || page >= t->doc->npages) return false;
+  Doc* d = t->doc.get();
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  FPDF_PAGE pg = PageOf(d, page);
+  if (!pg) return false;
+  PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+  ESet w = s;
+  Resolved R;
+  if (!Resolve(d, pg, xf, w, false, &R) || R.mem.empty()) return false;
+  *out = R.mem[0];
+  return true;
+}
+int EdSetAngle(Tab* t, const ESet& s) {
+  TagObj o;
+  return FirstMember(t, s, &o) ? ((o.rot + 5) / 10) % 360 : 0;
+}
+int EdSetOpacityOf(Tab* t, const ESet& s) {
+  TagObj o;
+  return FirstMember(t, s, &o) ? o.op : 100;
+}
+
+// ---- copy / paste: the objects are described by value, so they can be put on any page of any document
+namespace {
+struct ClipItem {
+  int type = 0;                      // 1 text, 2 picture, 3 rectangle / ellipse, 4 ink
+  int unit = 0;
+  FRect box;                         // page points
+  ws text, family;
+  int style = 0;
+  float size = 12, baseline = 0;     // text: box.l is the left edge of the first letter
+  COLORREF color = 0;
+  int bw = 0, bh = 0;
+  std::vector<uint8_t> bgra;
+  double angle = 0;                  // picture: clockwise, around the centre of `box`
+  int sub = 0, width = 1;            // annotation
+  std::vector<PointF> pts;
+  int opacity = 100;
+};
+}
+static std::vector<ClipItem> g_clip;
+
+bool EdClipHas() { return !g_clip.empty(); }
+
+static ws TextOfObj(FPDF_TEXTPAGE tp, FPDF_PAGEOBJECT o) {
+  if (!tp) return L"";
+  unsigned long need = PA.FPDFTextObj_GetText(o, tp, nullptr, 0);
+  if (need <= 2) return L"";
+  std::vector<unsigned short> buf(need / 2 + 4, 0);
+  PA.FPDFTextObj_GetText(o, tp, (FPDF_WCHAR*)buf.data(), need);
+  return ws((const wchar_t*)buf.data());
+}
+
+struct TxtRec {
+  TagObj o;
+  ws text;
+  double bx = 0, by = 0;
+  float size = 12;
+  COLORREF color = 0;
+  int fam = 0, style = 0;
+};
+static void ReadTextRec(const PXf& xf, FPDF_TEXTPAGE tp, const TagObj& to, TxtRec* r) {
+  r->o = to;
+  r->text = TextOfObj(tp, to.o);
+  FS_MATRIX m = {1, 0, 0, 1, 0, 0};
+  PA.FPDFPageObj_GetMatrix(to.o, &m);
+  xf.ToTl(m.e, m.f, &r->bx, &r->by);
+  r->size = to.tagged && to.kind == EK_TEXT && to.extra > 0 ? to.extra / 10.0f : TextEffSize(to.o);
+  unsigned cr = 0, cg = 0, cb = 0, ca = 255;
+  PA.FPDFPageObj_GetFillColor(to.o, &cr, &cg, &cb, &ca);
+  r->color = RGB(cr, cg, cb);
+  if (to.tagged && to.kind == EK_TEXT) { r->fam = min(max(to.font / 4, 0), kNFonts - 1); r->style = to.font & 3; }
+  else MapPdfFont(PA.FPDFTextObj_GetFont(to.o), &r->fam, &r->style);
+}
+// the pieces of text of a selection, grouped into lines (top to bottom, left to right)
+static void LineUp(std::vector<TxtRec>& v, std::vector<std::vector<int>>* lines) {
+  std::vector<int> ord(v.size());
+  for (size_t i = 0; i < ord.size(); i++) ord[i] = (int)i;
+  std::sort(ord.begin(), ord.end(), [&](int a, int b) { return v[a].by < v[b].by; });
+  for (int i : ord) {
+    if (!lines->empty()) {
+      const TxtRec& first = v[lines->back()[0]];
+      if (fabs(v[i].by - first.by) <= 0.45 * max(first.size, v[i].size)) { lines->back().push_back(i); continue; }
+    }
+    lines->push_back({i});
+  }
+  for (auto& ln : *lines) std::sort(ln.begin(), ln.end(), [&](int a, int b) { return v[a].o.box.l < v[b].o.box.l; });
+}
+static ws JoinLine(const std::vector<TxtRec>& v, const std::vector<int>& ln) {
+  ws out;
+  for (size_t k = 0; k < ln.size(); k++) {
+    const TxtRec& r = v[ln[k]];
+    if (k > 0) {
+      const TxtRec& p = v[ln[k - 1]];
+      float gap = r.o.box.l - p.o.box.r;
+      bool sp = (!out.empty() && out.back() == L' ') || (!r.text.empty() && r.text[0] == L' ');
+      if (!sp && gap > 0.12f * r.size) out += L' ';
+    }
+    out += r.text;
+  }
+  return out;
+}
+
+static void FillTextRecs(Doc* d, FPDF_PAGE pg, const PXf& xf, const Resolved& R, std::vector<TxtRec>* out) {
+  (void)d;
+  FPDF_TEXTPAGE tp = PA.FPDFText_LoadPage(pg);
+  for (auto& o : R.mem) {
+    if (o.type != FPDF_PAGEOBJ_TEXT) continue;
+    TxtRec r;
+    ReadTextRec(xf, tp, o, &r);
+    out->push_back(r);
+  }
+  if (tp) PA.FPDFText_ClosePage(tp);
+}
+
+bool EdGetText(Tab* t, const ESet& s, EdTextInfo* out) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page) || page >= t->doc->npages) return false;
+  Doc* d = t->doc.get();
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  FPDF_PAGE pg = PageOf(d, page);
+  if (!pg) return false;
+  PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+  ESet w = s;
+  Resolved R;
+  if (!Resolve(d, pg, xf, w, false, &R)) return false;
+  std::vector<TxtRec> v;
+  FillTextRecs(d, pg, xf, R, &v);
+  if (v.empty()) return false;
+  std::vector<std::vector<int>> lines;
+  LineUp(v, &lines);
+  EdTextInfo ti;
+  FRect u = v[0].o.box;
+  for (size_t i = 0; i < lines.size(); i++) {
+    if (i) ti.text += L"\r\n";
+    ti.text += JoinLine(v, lines[i]);
+  }
+  for (auto& r : v) u = UnionRect(u, r.o.box);
+  const TxtRec& f = v[lines[0][0]];
+  ti.family = kFonts[f.fam].key;
+  ti.style = f.style;
+  ti.size = (int)lroundf(f.size);
+  ti.color = f.color;
+  ti.box = u;
+  ti.lines = (int)lines.size();
+  *out = ti;
+  return true;
+}
+
+bool EdExpandLine(Tab* t, const ESel& s, ESet* out) {
+  out->clear();
+  out->push_back(s);
+  if (!t || !t->doc || s.kind != 3 || s.page < 0 || s.page >= t->doc->npages) return false;
+  Doc* d = t->doc.get();
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  FPDF_PAGE pg = PageOf(d, s.page);
+  if (!pg) return false;
+  PXf xf = MakeXf(pg, d->pw[s.page], d->ph[s.page]);
+  std::vector<TagObj> all;
+  EnumAll(pg, xf, &all, false);
+  float pw = d->pw[s.page], ph = d->ph[s.page];
+  FPDF_TEXTPAGE tp = PA.FPDFText_LoadPage(pg);
+  std::vector<TxtRec> v;
+  int seed = -1;
+  for (auto& o : all) {
+    if (o.type != FPDF_PAGEOBJ_TEXT || !RawSelectable(o, pw, ph, false)) continue;
+    TxtRec r;
+    ReadTextRec(xf, tp, o, &r);
+    if (!o.tagged && o.idx == s.obj) seed = (int)v.size();
+    v.push_back(r);
+  }
+  if (tp) PA.FPDFText_ClosePage(tp);
+  if (seed < 0) return false;
+  double by0 = v[seed].by;
+  float sz = v[seed].size;
+  std::vector<int> cand;
+  for (size_t i = 0; i < v.size(); i++) if ((int)i == seed || fabs(v[i].by - by0) <= 0.45 * max(sz, v[i].size)) cand.push_back((int)i);
+  std::sort(cand.begin(), cand.end(), [&](int a, int b) { return v[a].o.box.l < v[b].o.box.l; });
+  size_t sp = 0;
+  while (sp < cand.size() && cand[sp] != seed) sp++;
+  size_t lo = sp, hi = sp;
+  float reach = v[seed].o.box.r;
+  for (size_t k = sp + 1; k < cand.size(); k++) {
+    if (v[cand[k]].o.box.l - reach > sz * 1.6f) break;
+    reach = max(reach, v[cand[k]].o.box.r);
+    hi = k;
+  }
+  float left = v[seed].o.box.l;
+  for (size_t k = sp; k-- > 0;) {
+    if (left - v[cand[k]].o.box.r > sz * 1.6f) break;
+    left = min(left, v[cand[k]].o.box.l);
+    lo = k;
+  }
+  out->clear();
+  std::set<int> grps;
+  for (size_t k = lo; k <= hi; k++) {
+    const TagObj& o = v[cand[k]].o;
+    ESel e;
+    if (o.tagged) { if (grps.count(o.grp)) continue; grps.insert(o.grp); FillSel(&e, s.page, o); }
+    else FillSel(&e, s.page, o);
+    out->push_back(e);
+  }
+  return true;
+}
+
+// replaces the text objects of the selection by new text in the given face; the first baseline, the left edge and the line pitch stay
+bool EdReplaceText(Tab* t, ESet& s, const ws& text, const ws& family, int style, int size, COLORREF c) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page)) return false;
+  ESet work = s;
+  int grp = NewGroupId();
+  bool blank = true;
+  for (wchar_t ch : text) if (ch != L' ' && ch != L'\r' && ch != L'\n' && ch != L'\t') blank = false;
+  std::vector<ws> lines = SplitLines(text);
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    Resolved R;
+    if (!Resolve(d, pg, xf, work, false, &R)) return false;
+    std::vector<TxtRec> v;
+    FillTextRecs(d, pg, xf, R, &v);
+    if (v.empty()) return false;
+    std::vector<std::vector<int>> ln;
+    LineUp(v, &ln);
+    double x0 = 1e9;
+    for (auto& r : v) x0 = min(x0, r.bx);
+    double base0 = v[ln[0][0]].by, osz = v[ln[0][0]].size;
+    double pitch = ln.size() > 1 ? (v[ln.back()[0]].by - base0) / (double)(ln.size() - 1) : osz * 1.2;
+    double ratio = osz > 0.1 ? pitch / osz : 1.2;
+    if (ratio < 0.8) ratio = 1.2;
+    for (int i = (int)v.size() - 1; i >= 0; i--) {
+      if (PA.FPDFPage_RemoveObject(pg, v[i].o.o)) PA.FPDFPageObj_Destroy(v[i].o.o);
+    }
+    // (the removal has to be sorted out: indices above are not needed any more)
+    if (!PA.FPDFPage_GenerateContent(pg)) return false;
+    if (blank) return true;
+    return AdoptObjects(d, page, [&](FPDF_PAGE tmp) {
+      return BuildTextLines(d, tmp, xf, (float)x0, (float)base0, (float)(ratio * size), lines, family, style, (float)size, c, grp, 100);
+    });
+  });
+  if (ok) {
+    s.clear();
+    if (!blank) { ESel e; e.page = page; e.kind = 1; e.grp = grp; e.sub = EK_TEXT; s.push_back(e); }
+  }
+  return ok;
+}
+
+bool EdSetTextStyle(Tab* t, ESet& s, const ws& family, int style) {
+  EdTextInfo ti;
+  if (!EdGetText(t, s, &ti)) return false;
+  return EdReplaceText(t, s, ti.text, family, style, ti.size, ti.color);
+}
+
+bool EdCopy(Tab* t, const ESet& s) {
+  int page;
+  if (!t || !t->doc || !SetPageOf(s, &page) || page >= t->doc->npages) return false;
+  Doc* d = t->doc.get();
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  FPDF_PAGE pg = PageOf(d, page);
+  if (!pg) return false;
+  PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+  std::vector<TagObj> all;
+  EnumAll(pg, xf, &all, false);
+  FPDF_TEXTPAGE tp = nullptr;
+  std::vector<ClipItem> items;
+  int unsupported = 0;
+  for (size_t ui = 0; ui < s.size(); ui++) {
+    const ESel& it = s[ui];
+    if (it.kind == 2) {
+      FPDF_ANNOTATION an = PA.FPDFPage_GetAnnot(pg, it.annot);
+      if (!an) continue;
+      int sub = PA.FPDFAnnot_GetSubtype(an);
+      FS_RECTF rc;
+      unsigned r = 0, g = 0, b = 0, a = 255;
+      float hr = 0, vr = 0, bw = 1;
+      PA.FPDFAnnot_GetColor(an, FPDFANNOT_COLORTYPE_Color, &r, &g, &b, &a);
+      PA.FPDFAnnot_GetBorder(an, &hr, &vr, &bw);
+      if (PA.FPDFAnnot_GetRect(an, &rc)) {
+        ClipItem ci;
+        ci.unit = (int)ui;
+        ci.box = TlBoxOfPdf(xf, rc.left, rc.bottom, rc.right, rc.top);
+        ci.color = RGB(r, g, b);
+        ci.width = max(1, (int)lroundf(bw));
+        ci.sub = sub;
+        if (sub == FPDF_ANNOT_SQUARE || sub == FPDF_ANNOT_CIRCLE) { ci.type = 3; items.push_back(ci); }
+        else if (sub == FPDF_ANNOT_INK) {
+          unsigned long np = PA.FPDFAnnot_GetInkListCount(an);
+          for (unsigned long pi = 0; pi < np; pi++) {
+            unsigned long len = PA.FPDFAnnot_GetInkListPath(an, pi, nullptr, 0);
+            std::vector<FS_POINTF> pts(len);
+            if (len) PA.FPDFAnnot_GetInkListPath(an, pi, pts.data(), len);
+            ClipItem cj = ci;
+            cj.type = 4;
+            for (auto& p : pts) { double x, y; xf.ToTl(p.x, p.y, &x, &y); cj.pts.push_back(PointF((float)x, (float)y)); }
+            if (cj.pts.size() >= 2) items.push_back(cj);
+          }
+        } else unsupported++;
+      }
+      PA.FPDFPage_CloseAnnot(an);
+      continue;
+    }
+    for (auto& o : all) {
+      bool mine = (it.kind == 1 && o.tagged && o.grp == it.grp) || (it.kind == 3 && !o.tagged && o.idx == it.obj);
+      if (!mine) continue;
+      ClipItem ci;
+      ci.unit = (int)ui;
+      ci.box = o.box;
+      ci.opacity = o.tagged ? o.op : 100;
+      if (o.type == FPDF_PAGEOBJ_TEXT) {
+        if (!tp) tp = PA.FPDFText_LoadPage(pg);
+        TxtRec r;
+        ReadTextRec(xf, tp, o, &r);
+        if (r.text.empty()) continue;
+        ci.type = 1; ci.text = r.text; ci.family = kFonts[r.fam].key; ci.style = r.style; ci.size = r.size; ci.color = r.color;
+        ci.box.l = (float)r.bx; ci.baseline = (float)r.by;
+        items.push_back(ci);
+      } else if (o.type == FPDF_PAGEOBJ_IMAGE) {
+        FPDF_BITMAP bm = PA.FPDFImageObj_GetRenderedBitmap(d->h, pg, o.o);
+        if (!bm) { unsupported++; continue; }
+        int w = PA.FPDFBitmap_GetWidth(bm), h = PA.FPDFBitmap_GetHeight(bm), stride = PA.FPDFBitmap_GetStride(bm), fmt = PA.FPDFBitmap_GetFormat(bm);
+        const unsigned char* src = (const unsigned char*)PA.FPDFBitmap_GetBuffer(bm);
+        int bpp = fmt == FPDFBitmap_BGR ? 3 : (fmt == FPDFBitmap_Gray ? 1 : 4);
+        if (w > 0 && h > 0 && src) {
+          ci.bw = w; ci.bh = h;
+          ci.bgra.resize((size_t)w * h * 4);
+          for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+              const unsigned char* px = src + (size_t)y * stride + (size_t)x * bpp;
+              unsigned char* dp = &ci.bgra[((size_t)y * w + x) * 4];
+              dp[0] = px[0]; dp[1] = bpp >= 3 ? px[1] : px[0]; dp[2] = bpp >= 3 ? px[2] : px[0];
+              dp[3] = (bpp == 4 && fmt == FPDFBitmap_BGRA) ? px[3] : 255;
+            }
+          FS_MATRIX m = {1, 0, 0, 1, 0, 0};
+          PA.FPDFPageObj_GetMatrix(o.o, &m);
+          double x0, y0, x1, y1, x2, y2;
+          xf.ToTl(m.e, m.f, &x0, &y0);
+          xf.ToTl(m.e + m.a, m.f + m.b, &x1, &y1);
+          xf.ToTl(m.e + m.c, m.f + m.d, &x2, &y2);
+          double wp = hypot(x1 - x0, y1 - y0), hp = hypot(x2 - x0, y2 - y0);
+          ci.angle = atan2(y1 - y0, x1 - x0) * 180.0 / 3.14159265358979323846;
+          double cx = (o.box.l + o.box.r) * 0.5, cy = (o.box.t + o.box.b) * 0.5;
+          ci.box = {(float)(cx - wp / 2), (float)(cy - hp / 2), (float)(cx + wp / 2), (float)(cy + hp / 2)};
+          ci.type = 2;
+          items.push_back(ci);
+        }
+        PA.FPDFBitmap_Destroy(bm);
+      } else unsupported++;
+    }
+  }
+  if (tp) PA.FPDFText_ClosePage(tp);
+  if (items.empty()) {
+    ShowToast(unsupported ? L"Этот вид объектов (линии, векторная графика) копировать нельзя" : L"Нечего копировать");
+    return false;
+  }
+  g_clip = std::move(items);
+  if (unsupported) ShowToast(L"Часть объектов (линии, векторная графика) скопировать нельзя");
+  return true;
+}
+
+bool EdPaste(Tab* t, int page, float dx, float dy, ESet* out) {
+  if (!t || !t->doc || page < 0 || page >= t->doc->npages || g_clip.empty()) return false;
+  std::vector<ClipItem> items = g_clip;
+  std::map<int, int> grpOf;
+  for (auto& ci : items) if (ci.type <= 2 && !grpOf.count(ci.unit)) grpOf[ci.unit] = NewGroupId();
+  ESet res;
+  bool ok = EdEdit(t, false, {page}, [&](Doc* d) {
+    FPDF_PAGE pg = PageOf(d, page);
+    if (!pg) return false;
+    PXf xf = MakeXf(pg, d->pw[page], d->ph[page]);
+    float pw = d->pw[page], ph = d->ph[page];
+    // keep the copies on the page
+    float l = 1e9f, tt = 1e9f, r = -1e9f, b = -1e9f;
+    for (auto& ci : items) { l = min(l, ci.box.l); tt = min(tt, ci.box.t); r = max(r, ci.box.r); b = max(b, ci.box.b); }
+    float ox = dx, oy = dy;
+    if (r + ox > pw) ox -= r + ox - pw;
+    if (l + ox < 0) ox = -l;
+    if (b + oy > ph) oy -= b + oy - ph;
+    if (tt + oy < 0) oy = -tt;
+    // annotations first (they stay with the page itself), then the objects through the scratch page
+    bool anyObj = false;
+    for (auto& ci : items) {
+      if (ci.type == 3) {
+        FPDF_ANNOTATION an = PA.FPDFPage_CreateAnnot(pg, ci.sub);
+        if (!an) return false;
+        FRect nb = {ci.box.l + ox, ci.box.t + oy, ci.box.r + ox, ci.box.b + oy};
+        float rl, rb, rr, rt;
+        PdfRectOfTl(xf, nb, &rl, &rb, &rr, &rt);
+        FS_RECTF rc = {rl, rt, rr, rb};
+        PA.FPDFAnnot_SetRect(an, &rc);
+        unsigned cr, cg, cb;
+        ColorOf(ci.color, &cr, &cg, &cb);
+        PA.FPDFAnnot_SetColor(an, FPDFANNOT_COLORTYPE_Color, cr, cg, cb, 255);
+        PA.FPDFAnnot_SetBorder(an, 0, 0, (float)ci.width);
+        PA.FPDFAnnot_SetFlags(an, 4);
+        ESel e; e.page = page; e.kind = 2; e.annot = PA.FPDFPage_GetAnnotCount(pg) - 1; e.sub = ci.sub;
+        res.push_back(e);
+        PA.FPDFPage_CloseAnnot(an);
+      } else if (ci.type == 4) {
+        FPDF_ANNOTATION an = PA.FPDFPage_CreateAnnot(pg, FPDF_ANNOT_INK);
+        if (!an) return false;
+        std::vector<FS_POINTF> v;
+        float L = 1e9f, B = 1e9f, R = -1e9f, T = -1e9f;
+        for (auto& p : ci.pts) {
+          double x, y;
+          xf.ToPdf(p.X + ox, p.Y + oy, &x, &y);
+          v.push_back({(float)x, (float)y});
+          L = min(L, (float)x); R = max(R, (float)x); B = min(B, (float)y); T = max(T, (float)y);
+        }
+        float pad = ci.width * 0.5f + 1;
+        FS_RECTF rc = {L - pad, T + pad, R + pad, B - pad};
+        PA.FPDFAnnot_SetRect(an, &rc);
+        PA.FPDFAnnot_AddInkStroke(an, v.data(), v.size());
+        unsigned cr, cg, cb;
+        ColorOf(ci.color, &cr, &cg, &cb);
+        PA.FPDFAnnot_SetColor(an, FPDFANNOT_COLORTYPE_Color, cr, cg, cb, 255);
+        PA.FPDFAnnot_SetBorder(an, 0, 0, (float)ci.width);
+        PA.FPDFAnnot_SetFlags(an, 4);
+        ESel e; e.page = page; e.kind = 2; e.annot = PA.FPDFPage_GetAnnotCount(pg) - 1; e.sub = FPDF_ANNOT_INK;
+        res.push_back(e);
+        PA.FPDFPage_CloseAnnot(an);
+      } else anyObj = true;
+    }
+    if (!anyObj) return true;
+    bool good = AdoptObjects(d, page, [&](FPDF_PAGE tmp) {
+      int made = 0;
+      for (auto& ci : items) {
+        if (ci.type == 1) {
+          if (BuildTextLines(d, tmp, xf, ci.box.l + ox, ci.baseline + oy, ci.size * 1.2f, {ci.text}, ci.family, ci.style, ci.size, ci.color, grpOf[ci.unit], ci.opacity)) made++;
+        } else if (ci.type == 2) {
+          FPDF_BITMAP bm = PA.FPDFBitmap_Create(ci.bw, ci.bh, 1);
+          if (!bm) continue;
+          unsigned char* dst = (unsigned char*)PA.FPDFBitmap_GetBuffer(bm);
+          int ds = PA.FPDFBitmap_GetStride(bm);
+          for (int y = 0; y < ci.bh; y++) memcpy(dst + (size_t)y * ds, &ci.bgra[(size_t)y * ci.bw * 4], (size_t)ci.bw * 4);
+          FRect nb = {ci.box.l + ox, ci.box.t + oy, ci.box.r + ox, ci.box.b + oy};
+          if (BuildImage(d, tmp, xf, bm, nb, ci.angle, grpOf[ci.unit], ci.opacity)) made++;
+          PA.FPDFBitmap_Destroy(bm);
+        }
+      }
+      return made > 0;
+    });
+    if (!good) return false;
+    for (auto& kv : grpOf) { ESel e; e.page = page; e.kind = 1; e.grp = kv.second; res.push_back(e); }
+    return true;
+  });
+  if (ok && out) *out = res;
+  return ok;
+}
+
+// ------------------------------------------------------------------ every page to one paper size
+struct PaperDef { double w, h; };
+static const PaperDef kPapers[] = {{595.276, 841.89}, {841.89, 1190.55}, {419.528, 595.276}, {612, 792}, {612, 1008}};
+
+static void FitTarget(const FitOpts& o, double vw, double vh, double* tw, double* th) {
+  PaperDef pp = kPapers[min(max(o.paper, 0), 4)];
+  bool land = o.orient == 2 || (o.orient == 0 && vw > vh * 1.02);
+  *tw = land ? pp.h : pp.w;
+  *th = land ? pp.w : pp.h;
+}
+
+// Fits one page (as it is seen, with its rotation) onto the paper: scales, centres, clips to the old page, moves annotations. Returns true when it changed the page.
+bool FitPageToPaper(FPDF_PAGE pg, const FitOpts& o) {
+  double vw = PA.FPDF_GetPageWidthF(pg), vh = PA.FPDF_GetPageHeightF(pg), tw, th;
+  FitTarget(o, vw, vh, &tw, &th);
+  if (fabs(vw - tw) <= 1.0 && fabs(vh - th) <= 1.0) return false;
+  double m = o.marginMm * 72.0 / 25.4;
+  int rot = PA.FPDFPage_GetRotation(pg) & 3;
+  float ml = 0, mb = 0, mr = 612, mt = 792, cl, cb, cr, ct;
+  if (!PA.FPDFPage_GetMediaBox(pg, &ml, &mb, &mr, &mt)) { ml = 0; mb = 0; mr = 612; mt = 792; }
+  if (!PA.FPDFPage_GetCropBox(pg, &cl, &cb, &cr, &ct)) { cl = ml; cb = mb; cr = mr; ct = mt; }
+  cl = max(cl, min(ml, mr)); cb = max(cb, min(mb, mt)); cr = min(cr, max(ml, mr)); ct = min(ct, max(mb, mt));
+  double cw = cr - cl, ch = ct - cb;
+  if (cw < 1 || ch < 1) return false;
+  double s = min((tw - 2 * m) / vw, (th - 2 * m) / vh);
+  if (!o.enlarge) s = min(s, 1.0);
+  if (s <= 0) return false;
+  double Wm = (rot & 1) ? th : tw, Hm = (rot & 1) ? tw : th;
+  double e = (Wm - s * cw) / 2 - s * cl, f = (Hm - s * ch) / 2 - s * cb;
+  FS_MATRIX mx = {(float)s, 0, 0, (float)s, (float)e, (float)f};
+  FS_RECTF clip = {(float)((Wm - s * cw) / 2), (float)((Hm - s * ch) / 2 + s * ch), (float)((Wm - s * cw) / 2 + s * cw), (float)((Hm - s * ch) / 2)};
+  if (!PA.FPDFPage_TransFormWithClip(pg, &mx, &clip)) return false;
+  PA.FPDFPage_TransformAnnots(pg, s, 0, 0, s, e, f);
+  PA.FPDFPage_SetMediaBox(pg, 0, 0, (float)Wm, (float)Hm);
+  PA.FPDFPage_SetCropBox(pg, 0, 0, (float)Wm, (float)Hm);
+  PA.FPDFPage_SetTrimBox(pg, 0, 0, (float)Wm, (float)Hm);
+  PA.FPDFPage_SetBleedBox(pg, 0, 0, (float)Wm, (float)Hm);
+  PA.FPDFPage_SetArtBox(pg, 0, 0, (float)Wm, (float)Hm);
+  return true;
+}
+
+// for "save a copy": every page of a loaded document onto the paper; the caller holds g_pdf
+int FitDocumentPages(FPDF_DOCUMENT doc, const FitOpts& o) {
+  int n = PA.FPDF_GetPageCount(doc), changed = 0;
+  for (int p = 0; p < n; p++) {
+    FPDF_PAGE pg = PA.FPDF_LoadPage(doc, p);
+    if (!pg) continue;
+    if (FitPageToPaper(pg, o)) { PA.FPDFPage_GenerateContent(pg); changed++; }
+    PA.FPDF_ClosePage(pg);
+  }
+  return changed;
+}
+
+bool EdFitPages(Tab* t, const FitOpts& o, int* changedOut) {
+  if (changedOut) *changedOut = 0;
+  if (!t || !t->doc) return false;
+  Doc* d = t->doc.get();
+  int need = 0;
+  for (int p = 0; p < d->npages; p++) {
+    double tw, th;
+    FitTarget(o, d->pw[p], d->ph[p], &tw, &th);
+    if (fabs(d->pw[p] - tw) > 1.0 || fabs(d->ph[p] - th) > 1.0) need++;
+  }
+  if (!need) { ShowToast(L"Все страницы уже нужного размера"); return false; }
+  int changed = 0;
+  bool ok = EdEdit(t, true, {}, [&](Doc* dd) {
+    for (int p = 0; p < dd->npages; p++) {
+      FPDF_PAGE pg = PageOf(dd, p);
+      if (!pg) return false;
+      if (FitPageToPaper(pg, o)) changed++;
+    }
+    return changed > 0;
+  });
+  if (changedOut) *changedOut = changed;
   return ok;
 }
 
@@ -1050,10 +2131,11 @@ static bool RunExport(Tab* t, const ExportOpts& o, const ws& out, bool quiet, ws
   return true;
 }
 
-bool EdSaveAs(Tab* t) {
+bool EdSaveAs(Tab* t, bool fitA4) {
   if (!t || !t->doc) return false;
   Doc* d = t->doc.get();
   ExportOpts o = g_lastExport;
+  if (fitA4) { o.paper = 1; if (o.mode == 0) o.mode = 1; }
   if (!ExportOptionsDialog(A_.main, &o, d->npages)) return false;
   g_lastExport = o;
   ws stem = StripExt(BaseName(t->path));
@@ -1156,6 +2238,7 @@ bool EdTestCommand(const std::string& line) {
     ss >> o.mode >> dpi >> o.color >> o.quality >> o.maxMB;
     o.dpi = dpi;
     std::string f = rest();
+    if (f.rfind("paper=", 0) == 0) { o.paper = f[6] - '0'; size_t sp = f.find(' '); f = sp == std::string::npos ? "" : f.substr(sp + 1); }
     ws rep;
     if (c == "exportasync") {      // same, with the progress dialog, without blocking the test thread
       ws out = Utf8ToW(f);

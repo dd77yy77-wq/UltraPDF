@@ -1,0 +1,37 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\obj.pdf
+wait 2500
+ed mode 2
+cmd fitp
+wait 600
+ed tool select
+ed click 0 120 580
+ed selinfo
+ed mods 1
+ed click 0 100 112
+ed mods -1
+ed selinfo
+ed key c ctrl
+ed key v ctrl
+ed selinfo
+wait 400
+shot Z:\tmp\t\e19_a.bmp
+ed key z ctrl
+ed selinfo
+ed key a ctrl
+ed selinfo
+ed key escape
+ed click 0 120 580
+ed mods 2
+ed drag 0 120 580 300 600
+ed mods -1
+ed selinfo
+wait 400
+shot Z:\tmp\t\e19_b.bmp
+ed key x ctrl
+ed selinfo
+ed dump 0
+ed key v ctrl
+ed dump 0
+ed save Z:\tmp\t\e19_out.pdf
+quit

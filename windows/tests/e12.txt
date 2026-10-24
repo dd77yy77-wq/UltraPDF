@@ -1,0 +1,22 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\obj.pdf
+wait 2500
+ed mode 2
+ed tool select
+wait 300
+ed click 0 120 580
+ed selinfo
+shot Z:\tmp\t\e12_a.bmp
+ed drag 0 120 580 220 520
+ed selinfo
+ed dump 0
+wait 500
+shot Z:\tmp\t\e12_b.bmp
+ed click 0 100 112
+ed selinfo
+ed key delete
+ed dump 0
+shot Z:\tmp\t\e12_c.bmp
+ed key z ctrl
+ed dump 0
+quit
