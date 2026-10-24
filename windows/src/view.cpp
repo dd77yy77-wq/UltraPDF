@@ -2,6 +2,7 @@
 #include <atomic>
 // The document view: layout, scrolling, zoom, tiles, selection, links, search highlights
 #include "app.h"
+#include "editor.h"
 
 static HWND g_hw = nullptr;
 static int g_vw = 0, g_vh = 0;
@@ -420,6 +421,9 @@ static void AfterScrollChange(Tab* t) {
 }
 
 void ViewScrollBy(int dx, int dy, bool animate) {
+#ifdef APP_EDITOR
+  EdCommitText();
+#endif
   if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
@@ -445,6 +449,9 @@ static void ScrollTo(Tab* t, double x, double y, bool animate) {
 }
 
 void ViewGoPage(int page, float yPt, bool animate, bool pushBack) {
+#ifdef APP_EDITOR
+  EdCommitText();
+#endif
   if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
@@ -505,6 +512,9 @@ static void PzApplyLive() {
 }
 
 void ViewZoom(double z, int ax, int ay) {
+#ifdef APP_EDITOR
+  EdCommitText();
+#endif
   if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
@@ -537,6 +547,9 @@ void ViewZoomStep(int dir, int ax, int ay) {
 }
 
 void ViewSetFit(int fit) {
+#ifdef APP_EDITOR
+  EdCommitText();
+#endif
   if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
@@ -556,6 +569,9 @@ void ViewSetFit(int fit) {
 }
 
 void ViewRotate(int dir) {
+#ifdef APP_EDITOR
+  EdCommitText();
+#endif
   if (g_pz) PzCommit();
   Tab* t = CurTab();
   if (!t || !t->doc) return;
@@ -1058,6 +1074,9 @@ static void PaintDoc(HDC dc, RECT rc, Tab* t) {
       flush();
     }
   }
+#ifdef APP_EDITOR
+  EdPaintOverlay(dc, rc, t, first, last);
+#endif
 }
 
 static void PaintFullscreenButton(HDC dc, RECT rc) {
@@ -1172,6 +1191,9 @@ static LRESULT OnSetCursor(HWND hw) {
   GetCursorPos(&pt);
   ScreenToClient(hw, &pt);
   Tab* t = CurTab();
+#ifdef APP_EDITOR
+  if (t && t->doc && g_drag == D_NONE && EdSetCursor(t, pt.x, pt.y)) return TRUE;
+#endif
   LPCWSTR cur = IDC_ARROW;
   if (A_.fullscreen && PtInRect(&g_closeBtn, pt)) cur = IDC_HAND;
   else if (!t) { if (StartHit(pt.x, pt.y) >= 0) cur = IDC_HAND; }
@@ -1217,6 +1239,27 @@ static void ShowCtxMenu(HWND hw, int sx, int sy) {
   AppendMenuW(m, MF_STRING, ID_FIT_P, L"Страница целиком\tCtrl+8");
   AppendMenuW(m, MF_STRING, ID_ZOOM_100, L"Реальный размер\tCtrl+0");
   if (t->back.size()) AppendMenuW(m, MF_STRING, ID_BACK, L"Назад\tAlt+←");
+#ifdef APP_EDITOR
+  {
+    POINT cp = {sx, sy};
+    ScreenToClient(hw, &cp);
+    HMENU em = CreatePopupMenu();
+    EdContextMenu(em, t, cp.x, cp.y);
+    if (GetMenuItemCount(em) > 0) {
+      InsertMenuW(m, 0, MF_BYPOSITION | MF_SEPARATOR, 0, nullptr);
+      for (int i = GetMenuItemCount(em) - 1; i >= 0; i--) {
+        wchar_t lab[128] = {0};
+        MENUITEMINFOW mi = {sizeof(mi)};
+        mi.fMask = MIIM_ID | MIIM_FTYPE | MIIM_STRING;
+        mi.dwTypeData = lab; mi.cch = 127;
+        GetMenuItemInfoW(em, i, TRUE, &mi);
+        if (mi.fType & MFT_SEPARATOR) continue;
+        InsertMenuW(m, 0, MF_BYPOSITION | MF_STRING, mi.wID, lab);
+      }
+    }
+    DestroyMenu(em);
+  }
+#endif
   int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, 0, A_.main, nullptr);
   DestroyMenu(m);
   if (cmd) DoCmd(cmd);
@@ -1232,7 +1275,13 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: OnPaint(hw); return 0;
+#ifdef APP_EDITOR
+    case WM_CTLCOLOREDIT: { LRESULT er = EdCtlColor((HDC)wp, (HWND)lp); if (er) return er; break; }
+#endif
     case WM_SIZE: {
+#ifdef APP_EDITOR
+      EdCommitText();
+#endif
       g_vw = LOWORD(lp); g_vh = HIWORD(lp);
       Tab* t = CurTab();
       if (t && t->doc) {
@@ -1422,6 +1471,9 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       g_downSx = t->sx; g_downSy = t->sy;
       SetCapture(hw);
       if (A_.presentation) { g_drag = D_NONE; ReleaseCapture(); ViewPageStep(1); return 0; }
+#ifdef APP_EDITOR
+      if (EdMouseDown(t, mx, my, msg == WM_LBUTTONDBLCLK)) { g_drag = D_NONE; ViewInvalidate(); return 0; }
+#endif
       int p;
       float x, y;
       bool exact;
@@ -1467,6 +1519,9 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
       }
       g_lastPt = {mx, my};
+#ifdef APP_EDITOR
+      if (EdMouseMove(t, mx, my, wp)) return 0;
+#endif
       if (g_drag == D_PENDLINK) {
         if (abs(mx - g_downPt.x) > 4 || abs(my - g_downPt.y) > 4) g_drag = D_PAN;
       }
@@ -1489,6 +1544,14 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_MOUSELEAVE: g_trackLeave = false; if (g_startHover != -1) { g_startHover = -1; ViewInvalidate(); } return 0;
     case WM_LBUTTONUP: {
+#ifdef APP_EDITOR
+      if (EdMouseUp(CurTab(), GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) {
+        g_drag = D_NONE;
+        if (GetCapture() == hw) ReleaseCapture();
+        ViewInvalidate();
+        return 0;
+      }
+#endif
       Drag was = g_drag;
       Link pend = g_pendLink;
       g_drag = D_NONE;
@@ -1500,6 +1563,9 @@ static LRESULT CALLBACK ViewProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         Tab* t = CurTab();
         if (t && t->sel.p0 == t->sel.p1 && t->sel.c0 == t->sel.c1) t->sel.active = false;
       }
+#ifdef APP_EDITOR
+      EdAfterTextSelection();
+#endif
       ViewInvalidate();
       return 0;
     }
@@ -1555,3 +1621,19 @@ void ViewRecreate() {
   g_syncReset = true;
   if (focus && A_.view) SetFocus(A_.view);
 }
+
+#ifdef APP_EDITOR
+bool ViewHitPage(Tab* t, int mx, int my, int* page, float* xPt, float* yPt, bool* exact) { return HitPage(t, mx, my, page, xPt, yPt, exact); }
+RECT ViewRectToScreen(Tab* t, int p, const FRect& r) { return RectToScreen(t, p, r); }
+void ViewSelOrder(const Sel& s, int* pa, int* ca, int* pb, int* cb) { SelOrder(s, pa, ca, pb, cb); }
+void ViewScreenToPage(Tab* t, int p, int mx, int my, float* x, float* y) {
+  double lx = t->sx + mx - PageLeft(t, p), ly = t->sy + my - t->ytop[p];
+  LocalToPt(t, p, (float)lx, (float)ly, x, y);
+}
+void ViewPointToScreen(Tab* t, int p, float x, float y, int* sx, int* sy) {
+  float a, b;
+  PtToLocal(t, p, x, y, &a, &b);
+  *sx = PageLeft(t, p) - (int)lround(t->sx) + (int)lround(a);
+  *sy = t->ytop[p] - (int)lround(t->sy) + (int)lround(b);
+}
+#endif

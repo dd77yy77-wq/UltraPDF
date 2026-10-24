@@ -5,17 +5,21 @@ set -e
 cd "$(dirname "$0")"
 TC=${TC:-$(ls -d /tmp/wl/llvm-mingw-* | head -1)}
 INC=${PDFIUM_INC:-/tmp/wl/pdfium/include}
-OUT=${1:-UltraPDF.exe}
+if [ -n "$EDITOR" ]; then
+  OUT=${1:-UltraPDF-Editor.exe}; OBJ=obj-ed; DEFS="-DAPP_EDITOR"
+else
+  OUT=${1:-UltraPDF.exe}; OBJ=obj; DEFS=""
+fi
 CXX=$TC/bin/x86_64-w64-mingw32-clang++
 RC=$TC/bin/x86_64-w64-mingw32-windres
-mkdir -p obj
-$RC -I. app.rc -O coff -o obj/app.res.o
-OBJS=obj/app.res.o
+mkdir -p $OBJ
+$RC $DEFS -I. app.rc -O coff -o $OBJ/app.res.o
+OBJS=$OBJ/app.res.o
 pids=()
 for f in src/*.cpp; do
-  o=obj/$(basename $f .cpp).o
+  o=$OBJ/$(basename $f .cpp).o
   if [ ! -f $o ] || [ $f -nt $o ] || [ src/app.h -nt $o ]; then
-    $CXX -O2 -std=c++17 -DUNICODE -D_UNICODE -Wall -Wno-unused-function -Wno-missing-braces -Wno-unused-variable -I"$INC" -Isrc -c $f -o $o &
+    $CXX -O2 -std=c++17 -DUNICODE -D_UNICODE $DEFS -Wall -Wno-unused-function -Wno-missing-braces -Wno-unused-variable -I"$INC" -Isrc -c $f -o $o &
     pids+=($!)
   fi
   OBJS="$OBJS $o"

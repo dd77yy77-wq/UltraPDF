@@ -1,5 +1,6 @@
 // Main window: tabs, toolbar, find bar, sidebar header, commands, keyboard, files, state
 #include "app.h"
+#include "editor.h"
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
@@ -9,13 +10,17 @@ static std::vector<ws> g_tipText;
 static HWND g_tip = nullptr;
 
 enum { TMR_SAVE = 10, TMR_FIND = 11, TMR_TOAST = 12 };
-static const wchar_t* kMainClass = L"UltraPDF.Main";
+static const wchar_t* kMainClass = APP_ID L".Main";
 HANDLE g_mutex = nullptr;
 
 // ---------------------------------------------------------------- chrome geometry
 struct Btn { int id; RECT r; Icon ic; ws tip; bool enabled; bool checked; int kind; };  // kind 0 icon, 1 zoom label
 static std::vector<Btn> g_btns;
 static std::vector<Btn> g_fbtns;     // find bar buttons
+static RECT g_edR = {0, 0, 0, 0};
+static RECT g_modeSeg[3];
+static int g_hoverMode = -1;
+static int ModeBarW() { return S(270); }
 static RECT g_tabsR, g_tbR, g_findR, g_hdrR, g_splitR, g_pageLblR, g_findLblR, g_caseR;
 static struct TabRect { RECT r, close; } g_tabRects[64];
 static RECT g_plusR;
@@ -97,6 +102,15 @@ static void RebuildTips() {
   uint32_t uid = 1;
   std::vector<Btn> all = g_btns;
   all.insert(all.end(), g_fbtns.begin(), g_fbtns.end());
+#ifdef APP_EDITOR
+  std::vector<std::pair<RECT, ws>> edTips;
+  EdBarTips(&edTips);
+  for (auto& et : edTips) {
+    Btn b = {};
+    b.r = et.first; b.tip = et.second;
+    all.push_back(b);
+  }
+#endif
   for (auto& b : all) {
     if (b.tip.empty()) continue;
     g_tipText.push_back(b.tip);
@@ -196,6 +210,7 @@ void MainLayout() {
     ShowWindow(A_.findEdit, SW_HIDE);
     MoveWindow(A_.view, 0, 0, W, H, TRUE);
     g_btns.clear();
+    g_edR = {0, 0, 0, 0};
     return;
   }
   int y = 0;
@@ -203,6 +218,14 @@ void MainLayout() {
   y = TabH();
   g_tbR = {0, y, W, y + TbH()};
   y += TbH();
+#ifdef APP_EDITOR
+  {
+    int eh = EdBarHeight();
+    g_edR = {0, y, W, y + eh};
+    y += eh;
+    EdBarLayout(g_edR);
+  }
+#endif
   bool showFind = A_.findOpen && t && t->doc;
   if (showFind) { g_findR = {0, y, W, y + FindH()}; y += FindH(); } else g_findR = {0, 0, 0, 0};
   bool showSide = G.sidebar && t && t->doc;
@@ -264,7 +287,7 @@ void MainRedrawChrome() {
 
 void UpdateTitle() {
   Tab* t = CurTab();
-  ws s = t ? t->title + L" — UltraPDF" : ws(L"UltraPDF");
+  ws s = t ? (EdIsEdited(t) ? L"\u2022 " : L"") + t->title + L" — " APP_TITLE : ws(APP_TITLE);
   SetWindowTextW(A_.main, s.c_str());
 }
 
@@ -309,6 +332,9 @@ static void DrawTabs(HDC dc) {
   int n = (int)A_.tabs.size();
   int plusW = S(34);
   int avail = g_tabsR.right - S(8) - plusW - S(8);
+#ifdef APP_EDITOR
+  avail -= ModeBarW();
+#endif
   int tw = n ? min(S(220), max(S(56), avail / n)) : S(150);
   int x = S(6);
   for (int i = 0; i < n && i < 64; i++) {
@@ -326,6 +352,7 @@ static void DrawTabs(HDC dc) {
     g_tabRects[i].close = cr;
     RECT tr = {r.left + S(10), r.top, r.right - S(30), r.bottom};
     ws title = A_.tabs[i]->title;
+    if (EdIsEdited(A_.tabs[i].get())) title = L"\u2022 " + title;
     if (A_.tabs[i]->loading) title = L"… " + title;
     DrawTextW2(dc, title, tr, act ? T.text : T.dim, UiFont(S(13)), DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     if (act || i == g_hoverTab) {
@@ -338,6 +365,24 @@ static void DrawTabs(HDC dc) {
   if (g_hoverTab == 100) FillRoundRect(dc, g_plusR, S(6), T.hover);
   FRect pr = {(float)g_plusR.left + S(8), (float)g_plusR.top + S(5), (float)g_plusR.right - S(8), (float)g_plusR.bottom - S(5)};
   DrawIcon(dc, IC_PLUS, pr, T.dim, 1.6f);
+#ifdef APP_EDITOR
+  {
+    // three-position switch: viewer / viewer Pro / editor
+    static const wchar_t* names[3] = {L"Просмотр", L"Pro", L"Редактор"};
+    int ws_[3] = {S(96), S(62), S(100)};
+    RECT all = {g_tabsR.right - S(8) - (ws_[0] + ws_[1] + ws_[2]) - S(6), S(6), g_tabsR.right - S(8), TabH() - S(4)};
+    FillRoundRect(dc, all, S(9), T.hover);
+    int sx = all.left + S(3);
+    for (int i = 0; i < 3; i++) {
+      g_modeSeg[i] = {sx, all.top + S(3), sx + ws_[i], all.bottom - S(3)};
+      sx += ws_[i];
+      bool on = G.edMode == i;
+      if (on) FillRoundRect(dc, g_modeSeg[i], S(7), T.accent);
+      else if (g_hoverMode == i) FillRoundRect(dc, g_modeSeg[i], S(7), T.press);
+      DrawTextW2(dc, names[i], g_modeSeg[i], on ? RGB(255, 255, 255) : T.text, UiFont(S(12), on), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+  }
+#endif
 }
 
 static ws FindLabel(Tab* t) {
@@ -372,6 +417,9 @@ static void PaintMain(HWND hw) {
   LineTo(dc, rc.right, g_tbR.bottom - 1);
   Tab* t = CurTab();
   for (size_t i = 0; i < g_btns.size(); i++) DrawBtn(dc, g_btns[i], (int)i);
+#ifdef APP_EDITOR
+  EdBarPaint(dc, g_edR);
+#endif
   if (t && t->doc && g_pageLblR.right > g_pageLblR.left) {
     RECT lr = g_pageLblR;
     lr.left += S(4);
@@ -459,6 +507,10 @@ static void SyncFindEditToTab() {
 void SwitchTab(int idx) {
   if (idx < 0 || idx >= (int)A_.tabs.size()) return;
   Tab* old = CurTab();
+#ifdef APP_EDITOR
+  EdCommitText();
+  EdOnTabChanged();
+#endif
   if (old && old->doc) SaveTabState(old);
   SearchCancel();
   A_.cur = idx;
@@ -488,6 +540,11 @@ void SwitchTab(int idx) {
 void CloseTab(int idx) {
   if (idx < 0 || idx >= (int)A_.tabs.size()) return;
   Tab* t = A_.tabs[idx].get();
+#ifdef APP_EDITOR
+  EdCommitText();
+  if (!EdConfirmClose(t)) return;
+  EdOnTabChanged();
+#endif
   if (t->doc) SaveTabState(t);
   SearchCancel();
   CloseDoc(t->doc);
@@ -514,7 +571,7 @@ void OpenPath(const ws& path0) {
   for (size_t i = 0; i < A_.tabs.size(); i++)
     if (LowerW(A_.tabs[i]->path) == lp) { SwitchTab((int)i); return; }
   if (!FileExists(path)) {
-    MessageBoxW(A_.main, (L"Файл не найден:\n" + path).c_str(), L"UltraPDF", MB_OK | MB_ICONWARNING);
+    MessageBoxW(A_.main, (L"Файл не найден:\n" + path).c_str(), APP_TITLE, MB_OK | MB_ICONWARNING);
     return;
   }
   auto t = std::make_unique<Tab>();
@@ -730,10 +787,15 @@ static void ShowMainMenu(int x, int y, RECT btn) {
   if (n == 0) AppendMenuW(hist, MF_STRING | MF_GRAYED, 0, L"(пусто)");
   else { AppendMenuW(hist, MF_SEPARATOR, 0, nullptr); AppendMenuW(hist, MF_STRING, ID_CLEAR_HISTORY, L"Очистить историю"); }
   AppendMenuW(m, MF_POPUP, (UINT_PTR)hist, L"История");
-  AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SAVEAS, L"Сохранить как…");
+#ifdef APP_EDITOR
+  AppendMenuW(m, MF_STRING | (doc && EdIsEdited(t) ? 0 : MF_GRAYED), ID_ED_SAVE, L"Сохранить\tCtrl+S");
+#endif
+  AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SAVEAS, L"Сохранить как…\tCtrl+Shift+S");
   AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SHOWFOLDER, L"Показать в папке");
   AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+#ifndef APP_EDITOR
   AppendMenuW(m, MF_STRING | (G.pro ? MF_CHECKED : 0), ID_PRO, L"Pro-режим");
+#endif
   HMENU ap = nullptr;
   if (G.pro) {
     AppendMenuW(m, MF_STRING | (doc ? 0 : MF_GRAYED), ID_SIDE_BOOKS, L"Закладки");
@@ -771,9 +833,14 @@ static void ShowMainMenu(int x, int y, RECT btn) {
   MenuIcon(m, ID_OPEN, false, IC_OPEN);
   MenuIcon(m, 1, true, IC_HIST);
   MenuIcon(hist, ID_CLEAR_HISTORY, false, IC_TRASH);
-  MenuIcon(m, ID_SAVEAS, false, IC_SAVE);
+#ifdef APP_EDITOR
+  MenuIcon(m, ID_ED_SAVE, false, IC_SAVE);
+#endif
+  MenuIcon(m, ID_SAVEAS, false, IC_SAVEAS);
   MenuIcon(m, ID_SHOWFOLDER, false, IC_SHOW);
+#ifndef APP_EDITOR
   MenuIcon(m, ID_PRO, false, IC_STAR);
+#endif
   if (G.pro) {
     MenuIcon(m, ID_SIDE_BOOKS, false, IC_BOOK);
     MenuIcon(m, ID_SIDE_OUTLINE, false, IC_LIST);
@@ -828,6 +895,9 @@ void DoCmd(int id) {
     ViewZoom(pct[id - ID_ZOOM_PRESET] / 100.0, -1, -1);
     return;
   }
+#ifdef APP_EDITOR
+  if (IsEdCmd(id)) { EdCommand(id); return; }
+#endif
   switch (id) {
     case ID_OPEN + 1000: {
       RECT r = g_btns.empty() ? RECT{0, 0, 0, 0} : g_btns[0].r;
@@ -890,6 +960,9 @@ void DoCmd(int id) {
     case ID_FULLSCREEN: if (doc && G.pro) MainSetFullscreen(!(A_.fullscreen && !A_.presentation), false); break;
     case ID_PRESENT: if (doc && G.pro) MainSetFullscreen(!(A_.fullscreen && A_.presentation), true); break;
     case ID_SAVEAS:
+#ifdef APP_EDITOR
+      if (doc) { EdSaveAs(t); break; }
+#endif
       if (doc) {
         wchar_t buf[MAX_PATH * 2];
         wcsncpy(buf, BaseName(t->path).c_str(), MAX_PATH);
@@ -901,7 +974,7 @@ void DoCmd(int id) {
         of.lpstrDefExt = L"pdf";
         of.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
         if (GetSaveFileNameW(&of)) {
-          if (!CopyFileW(t->path.c_str(), buf, FALSE)) MessageBoxW(A_.main, L"Не удалось сохранить файл", L"UltraPDF", MB_OK | MB_ICONWARNING);
+          if (!CopyFileW(t->path.c_str(), buf, FALSE)) MessageBoxW(A_.main, L"Не удалось сохранить файл", APP_TITLE, MB_OK | MB_ICONWARNING);
           else ShowToast(L"Сохранено");
         }
       }
@@ -940,6 +1013,9 @@ static bool HandleKey(MSG& m) {
     if (vk == VK_LEFT) { DoCmd(ID_BACK); return true; }
     return false;
   }
+#ifdef APP_EDITOR
+  if (EdKey(vk, ctrl, shift)) return true;
+#endif
   if (ctrl) {
     switch (vk) {
       case 'O': DoCmd(ID_OPEN); return true;
@@ -1039,6 +1115,13 @@ static int HitBtn(int x, int y) {
   return -1;
 }
 static Btn& BtnAt(int i) { return i >= 1000 ? g_fbtns[i - 1000] : g_btns[i]; }
+#ifdef APP_EDITOR
+static int HitMode(int x, int y) {
+  POINT pt = {x, y};
+  for (int i = 0; i < 3; i++) if (PtInRect(&g_modeSeg[i], pt)) return i;
+  return -1;
+}
+#endif
 static int HitTab(int x, int y, bool* onClose) {
   POINT pt = {x, y};
   *onClose = false;
@@ -1062,7 +1145,11 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_GETMINMAXINFO: {
       MINMAXINFO* mm = (MINMAXINFO*)lp;
+#ifdef APP_EDITOR
+      mm->ptMinTrackSize.x = S(900);
+#else
       mm->ptMinTrackSize.x = S(620);
+#endif
       mm->ptMinTrackSize.y = S(420);
       return 0;
     }
@@ -1078,6 +1165,9 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_CTLCOLOREDIT: {
       HDC dc = (HDC)wp;
+#ifdef APP_EDITOR
+      { LRESULT er = EdCtlColor(dc, (HWND)lp); if (er) return er; }
+#endif
       SetTextColor(dc, T.text);
       SetBkColor(dc, T.field);
       return (LRESULT)g_editBrush;
@@ -1182,6 +1272,10 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
       }
+#ifdef APP_EDITOR
+      EdBarMouse(WM_MOUSEMOVE, x, y);
+      { int hm = HitMode(x, y); if (hm != g_hoverMode) { g_hoverMode = hm; InvalidateRect(hw, &g_tabsR, FALSE); } }
+#endif
       int hb = HitBtn(x, y);
       bool oc;
       int ht = HitTab(x, y, &oc);
@@ -1194,8 +1288,14 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_MOUSELEAVE:
+#ifdef APP_EDITOR
+      EdBarMouse(WM_MOUSELEAVE, 0, 0);
+#endif
       g_chromeTrack = false;
       g_hoverBtn = g_hoverTab = g_hoverSeg = -1;
+#ifdef APP_EDITOR
+      g_hoverMode = -1;
+#endif
       InvalidateRect(hw, nullptr, FALSE);
       return 0;
     case WM_SETCURSOR: {
@@ -1210,6 +1310,9 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       POINT pt = {x, y};
       SetFocus(A_.view);
       if (g_splitR.right > g_splitR.left && PtInRect(&g_splitR, pt)) { g_splitDrag = true; SetCapture(hw); return 0; }
+#ifdef APP_EDITOR
+      { int hm = HitMode(x, y); if (hm >= 0) { EdSetMode(hm); return 0; } }
+#endif
       bool oc;
       int ht = HitTab(x, y, &oc);
       if (ht == 100) { DoCmd(ID_OPEN); return 0; }
@@ -1220,6 +1323,9 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
         SetCapture(hw);
         return 0;
       }
+#ifdef APP_EDITOR
+      if (EdBarMouse(WM_LBUTTONDOWN, x, y)) return 0;
+#endif
       for (int i = 0; i < 3; i++)
         if (g_hdrR.bottom > g_hdrR.top && PtInRect(&g_segR[i], pt)) { G.sideTab = i; SideSync(); InvalidateRect(hw, nullptr, FALSE); return 0; }
       int hb = HitBtn(x, y);
@@ -1235,6 +1341,9 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_LBUTTONUP: {
       int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+#ifdef APP_EDITOR
+      if (EdBarMouse(WM_LBUTTONUP, x, y)) return 0;
+#endif
       if (GetCapture() == hw) ReleaseCapture();
       if (g_splitDrag) { g_splitDrag = false; return 0; }
       if (g_dragTab >= 0) { g_dragTab = -1; return 0; }
@@ -1258,6 +1367,10 @@ static LRESULT CALLBACK MainProc(HWND hw, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     }
     case WM_CLOSE:
+#ifdef APP_EDITOR
+      EdCommitText();
+      if (!EdConfirmAll()) return 0;
+#endif
       SaveAllState();
       DestroyWindow(hw);
       return 0;
@@ -1294,7 +1407,7 @@ bool MainCreate(HINSTANCE inst, int show, const ws& cmdline) {
     RECT r = {x, y, x + G.winW, y + G.winH};
     if (!MonitorFromRect(&r, MONITOR_DEFAULTTONULL)) { x = y = CW_USEDEFAULT; }
   }
-  A_.main = CreateWindowExW(WS_EX_ACCEPTFILES, kMainClass, L"UltraPDF", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, x, y, G.winW, G.winH, nullptr,
+  A_.main = CreateWindowExW(WS_EX_ACCEPTFILES, kMainClass, APP_TITLE, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, x, y, G.winW, G.winH, nullptr,
                             nullptr, inst, nullptr);
   if (!A_.main) return false;
   typedef UINT(WINAPI * GDFW)(HWND);
@@ -1348,7 +1461,7 @@ bool MainCreate(HINSTANCE inst, int show, const ws& cmdline) {
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int show) {
   // single instance: hand the files over to a running copy
-  g_mutex = CreateMutexW(nullptr, TRUE, L"UltraPDF.Single.Instance");
+  g_mutex = CreateMutexW(nullptr, TRUE, APP_ID L".Single.Instance");
   bool already = GetLastError() == ERROR_ALREADY_EXISTS;
   wchar_t testEnv[1024];
   bool testing = GetEnvironmentVariableW(L"ULTRAPDF_TEST", testEnv, 1024) > 0;
@@ -1380,13 +1493,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int show) {
   ws old = ExePath() + L".old";
   DeleteFileW(old.c_str());
   LoadSettings();
+#ifdef APP_EDITOR
+  G.pro = G.edMode >= 1;
+#endif
   GfxInit();
   A_.dpi = 96;
   if (!testing || GetEnvironmentVariableW(L"ULTRAPDF_SPLASH", nullptr, 0) > 0) { ApplyTheme(G.themeMode); SplashShow(inst); }
   ws err;
   if (!PdfLoad(&err)) {
     SplashClose();
-    MessageBoxW(nullptr, err.c_str(), L"UltraPDF", MB_OK | MB_ICONERROR);
+    MessageBoxW(nullptr, err.c_str(), APP_TITLE, MB_OK | MB_ICONERROR);
     return 1;
   }
   if (!MainCreate(inst, show, L"")) return 1;

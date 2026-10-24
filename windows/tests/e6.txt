@@ -1,0 +1,20 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\mixed.pdf
+wait 2500
+info Z:\tmp\t\e6_info.txt
+ed page rotcw
+wait 500
+info Z:\tmp\t\e6_info2.txt
+wait 300
+ed tool rect
+ed drag 0 60 100 200 180
+ed textbox 0 80 220 Повёрнутая страница
+ed textcommit
+ed picture /tmp/stamp.png
+ed selinfo
+ed tool hilite
+ed drag 0 60 60 200 60
+wait 400
+shot Z:\tmp\t\e6_a.bmp
+ed save Z:\tmp\t\e6_out.pdf
+quit

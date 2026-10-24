@@ -5,3 +5,5 @@ t/
 windows/obj/
 windows/UltraPDF.exe
 windows/UltraPDF.exe.*
+windows/obj-ed/
+windows/UltraPDF-Editor.exe

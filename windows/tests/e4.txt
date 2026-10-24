@@ -1,0 +1,24 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+ed tool text
+ed click 0 300 150
+wait 300
+ed textbox 0 300 200 Привет\nредактор
+ed tbinfo
+wait 400
+ed tbinfo
+shotscreen Z:\tmp\t\e4_a.bmp
+ed textcommit
+ed selinfo
+key 46
+wait 300
+ed selinfo
+ed pageasync delrange
+dlgpw 2-3
+wait 500
+info
+ed pageasync split
+dlgpw 5
+wait 800
+quit

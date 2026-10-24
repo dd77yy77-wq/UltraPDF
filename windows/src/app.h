@@ -42,18 +42,60 @@ template <class A, class B> inline typename std::common_type<A, B>::type min(A a
 #include "fpdfview.h"
 #include "fpdf_text.h"
 #include "fpdf_doc.h"
+#include "fpdf_annot.h"
+#include "fpdf_edit.h"
+#include "fpdf_flatten.h"
+#include "fpdf_ppo.h"
+#include "fpdf_save.h"
+#include "fpdf_transformpage.h"
 
+#ifdef APP_EDITOR
+#define APP_TITLE L"UltraPDF Editor"
+#define APP_ID L"UltraPDFEditor"
+#define APP_DIR L"UltraPDF Editor"
+#define APP_EXE L"UltraPDF-Editor.exe"
+#define APP_VERSION_CODE 1
+#define APP_VERSION_NAME L"1.0"
+#define APP_VERSION_NAME_A "1.0"
+#define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-editor.json"
+#define UPDATE_EXE_PATH L"/dd77yy77-wq/UltraPDF/main/UltraPDF-Editor.exe"
+#else
+#define APP_TITLE L"UltraPDF"
+#define APP_ID L"UltraPDF"
+#define APP_DIR L"UltraPDF"
+#define APP_EXE L"UltraPDF.exe"
 #define APP_VERSION_CODE 29
 #define APP_VERSION_NAME L"1.19"
 #define APP_VERSION_NAME_A "1.19"
-#define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
-#define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 #define UPDATE_JSON_PATH L"/dd77yy77-wq/UltraPDF/main/version-win.json"
 #define UPDATE_EXE_PATH L"/dd77yy77-wq/UltraPDF/main/UltraPDF.exe"
+#endif
+#define GITHUB_URL L"https://github.com/dd77yy77-wq/UltraPDF"
+#define UPDATE_JSON_HOST L"raw.githubusercontent.com"
 
 typedef std::wstring ws;
 
 // ------------------------------------------------------------------ pdfium dynamic API
+#ifdef APP_EDITOR
+#define PDF_FUNCS_ED(X) \
+  X(FPDF_LoadMemDocument) X(FPDF_SaveAsCopy) X(FPDF_DeviceToPage) X(FPDF_CreateNewDocument) \
+  X(FPDFPage_CreateAnnot) X(FPDFPage_GetAnnotCount) X(FPDFPage_GetAnnot) X(FPDFPage_CloseAnnot) X(FPDFPage_RemoveAnnot) \
+  X(FPDFAnnot_GetSubtype) X(FPDFAnnot_SetColor) X(FPDFAnnot_GetColor) X(FPDFAnnot_SetRect) X(FPDFAnnot_GetRect) \
+  X(FPDFAnnot_AppendAttachmentPoints) X(FPDFAnnot_SetBorder) X(FPDFAnnot_AddInkStroke) \
+  X(FPDFPage_CountObjects) X(FPDFPage_GetObject) X(FPDFPageObj_GetType) X(FPDFPageObj_GetBounds) X(FPDFPageObj_Transform) \
+  X(FPDFPage_RemoveObject) X(FPDFPage_InsertObject) X(FPDFPage_InsertObjectAtIndex) X(FPDFPageObj_Destroy) \
+  X(FPDFPageObj_NewImageObj) X(FPDFImageObj_SetBitmap) X(FPDFImageObj_GetBitmap) \
+  X(FPDFPageObj_CreateTextObj) X(FPDFText_SetText) X(FPDFText_LoadFont) X(FPDFFont_Close) X(FPDFTextObj_GetText) \
+  X(FPDFTextObj_GetFontSize) X(FPDFPageObj_SetFillColor) X(FPDFPageObj_GetFillColor) X(FPDFPage_GenerateContent) \
+  X(FPDFPageObj_AddMark) X(FPDFPageObj_CountMarks) X(FPDFPageObj_GetMark) X(FPDFPageObjMark_GetName) \
+  X(FPDFPageObjMark_SetIntParam) X(FPDFPageObjMark_GetParamIntValue) \
+  X(FPDFBitmap_Create) X(FPDFBitmap_GetBuffer) X(FPDFBitmap_GetStride) X(FPDFBitmap_GetWidth) X(FPDFBitmap_GetHeight) \
+  X(FPDFPage_Delete) X(FPDF_MovePages) X(FPDF_ImportPages) X(FPDFPage_SetRotation) X(FPDFPage_GetRotation) \
+  X(FPDFBitmap_GetFormat) X(FPDFAnnot_SetFlags) X(FPDFPage_New) X(FPDFPageObj_GetMatrix) X(FPDFPageObj_SetMatrix) \
+  X(FPDFAnnot_SetStringValue) X(FPDFAnnot_GetFlags) X(FPDFImageObj_GetRenderedBitmap) X(FPDFPage_Flatten)
+#else
+#define PDF_FUNCS_ED(X)
+#endif
 struct PdfApi {
 #define PDF_FUNCS(X) \
   X(FPDF_InitLibrary) X(FPDF_DestroyLibrary) X(FPDF_GetLastError) \
@@ -72,7 +114,7 @@ struct PdfApi {
   X(FPDFBookmark_GetFirstChild) X(FPDFBookmark_GetNextSibling) X(FPDFBookmark_GetTitle) \
   X(FPDFBookmark_GetDest) X(FPDFBookmark_GetAction) \
   X(FPDFLink_LoadWebLinks) X(FPDFLink_CountWebLinks) X(FPDFLink_GetURL) X(FPDFLink_CountRects) \
-  X(FPDFLink_GetRect) X(FPDFLink_CloseWebLinks) X(FPDF_GetMetaText)
+  X(FPDFLink_GetRect) X(FPDFLink_CloseWebLinks) X(FPDF_GetMetaText) PDF_FUNCS_ED(X)
 #define X(n) decltype(&::n) n;
   PDF_FUNCS(X)
 #undef X
@@ -120,6 +162,7 @@ struct DocState {
 };
 struct Settings {
   bool pro = true;
+  int edMode = 2;                 // editor build: 0 viewer, 1 viewer Pro, 2 editor
   int themeMode = 0;
   int renderMode = 0;            // frame output: 0 auto (by GPU vendor), 1 classic GDI BitBlt, 2 DirectX flip for NVIDIA/Intel (direct upload), 3 DirectX flip for AMD (upload through staging textures)
   int readMode = 0;              // 0 day, 1 sepia, 2 night
@@ -146,7 +189,9 @@ void GfxShutdown();
 enum Icon {
   IC_MENU, IC_SIDEBAR, IC_OPEN, IC_UP, IC_DOWN, IC_ZOUT, IC_ZIN, IC_FITW, IC_FITP, IC_ROT, IC_SEARCH,
   IC_NIGHT, IC_BOOK, IC_BOOKON, IC_PRINT, IC_FULL, IC_CLOSE, IC_PLUS, IC_CASE, IC_CHEV, IC_CHEVD, IC_PRES,
-  IC_HIST, IC_SAVE, IC_SHOW, IC_STAR, IC_LIST, IC_ROTL, IC_THEME, IC_SUN, IC_PAGE, IC_APPS, IC_UPD, IC_INFO, IC_EXIT, IC_TRASH, IC_GEAR
+  IC_HIST, IC_SAVE, IC_SHOW, IC_STAR, IC_LIST, IC_ROTL, IC_THEME, IC_SUN, IC_PAGE, IC_APPS, IC_UPD, IC_INFO, IC_EXIT, IC_TRASH, IC_GEAR,
+  IC_UNDO, IC_REDO, IC_CURSOR, IC_HILITE, IC_UNDER, IC_STRIKE, IC_SQUIG, IC_TEXTT, IC_PEN, IC_RECT, IC_ELLIPSE, IC_IMAGE,
+  IC_TOFRONT, IC_FORWARD, IC_BACKWARD, IC_TOBACK, IC_PAGES, IC_SAVEAS
 };
 HBITMAP MakeMenuIcon(Icon ic, int size, COLORREF col);    // 32-bit premultiplied ARGB bitmap for a menu item (caller deletes)
 void DrawIcon(HDC dc, Icon ic, FRect r, COLORREF col, float stroke = 1.6f);
@@ -207,6 +252,13 @@ struct Doc {
   FPDF_FILEACCESS fa;
   std::vector<std::pair<int, FPDF_PAGE>> pcache;   // loaded pages kept for tile rendering (under g_pdf)
   FPDF_PAGE CachedPage(int idx);
+  // editor: the document lives in memory; every edit is serialized so that it can be undone and saved
+  std::string src;                       // bytes the PDFium document reads from (must outlive h)
+  std::string pass;
+  bool edited = false;
+  std::vector<std::string> undo, redo;
+  std::map<ws, void*> fonts;             // embedded fonts of this document by face key (FPDF_FONT)
+  int saveMark = 0;                      // undo depth at the last save; the document counts as edited while it differs
   ~Doc();
 };
 extern std::recursive_mutex g_pdf;     // guards every PDFium call
@@ -247,6 +299,7 @@ void CacheUnlock();
 void CacheFocus(int docId, int first, int last, int zq);   // call between CacheLock/Unlock
 bool CacheGetLocked(const TileKey& k, Tile* t);    // call between CacheLock/Unlock; HBITMAP valid until unlock
 void CachePurgeDoc(int docId);
+void CachePurgePage(int docId, int page);
 void ReqBegin(Consumer c);                          // start collecting the requests of one paint
 void ReqTile(Consumer c, const std::shared_ptr<Doc>& d, const TileKey& k, int pageW, int pageH, int ox, int oy, int tileW, int tileH, int prio);
 void ReqPageData(Consumer c, const std::shared_ptr<Doc>& d, int page, int prio);

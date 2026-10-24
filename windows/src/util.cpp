@@ -82,7 +82,7 @@ ws AppDataDir() {
   wchar_t b[MAX_PATH];
   ws d;
   if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, b))) d = b; else d = L".";
-  d += L"\\UltraPDF";
+  d += L"\\" APP_DIR;
   CreateDirectoryW(d.c_str(), nullptr);
   return d;
 }
@@ -159,6 +159,7 @@ void LoadSettings() {
       const std::string& k = f[1];
       long v = atol(f[2].c_str());
       if (k == "pro") G.pro = v != 0;
+      else if (k == "edmode") G.edMode = (int)min(max(v, 0L), 2L);
       else if (k == "theme") G.themeMode = (int)v;
       else if (k == "render") G.renderMode = (int)v;
       else if (k == "mode") G.readMode = (int)v;
@@ -197,7 +198,7 @@ void LoadSettings() {
 void SaveSettings() {
   std::string o;
   auto S_ = [&](const char* k, long long v) { o += "S\t"; o += k; o += "\t"; o += std::to_string(v); o += "\n"; };
-  S_("pro", G.pro); S_("theme", G.themeMode); S_("render", G.renderMode); S_("mode", G.readMode); S_("sidebar", G.sidebar); S_("sideW", G.sideW);
+  S_("pro", G.pro); S_("edmode", G.edMode); S_("theme", G.themeMode); S_("render", G.renderMode); S_("mode", G.readMode); S_("sidebar", G.sidebar); S_("sideW", G.sideW);
   S_("sideTab", G.sideTab); S_("x", G.winX); S_("y", G.winY); S_("w", G.winW); S_("h", G.winH); S_("max", G.maximized);
   S_("case", G.matchCase); S_("upd", (long long)G.lastUpdateCheck); S_("active", G.sessionActive);
   for (auto& s : G.session) { o += "T\t" + WToUtf8(s) + "\n"; }

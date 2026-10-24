@@ -53,7 +53,7 @@ void PrintDoc(HWND owner) {
   pd.nCopies = 1;
   if (!PrintDlgW(&pd)) {
     DWORD e = CommDlgExtendedError();
-    if (e) MessageBoxW(owner, L"Не удалось открыть окно печати. Возможно, в системе нет принтеров.", L"UltraPDF", MB_OK | MB_ICONWARNING);
+    if (e) MessageBoxW(owner, L"Не удалось открыть окно печати. Возможно, в системе нет принтеров.", APP_TITLE, MB_OK | MB_ICONWARNING);
     return;
   }
   PrintJob j;

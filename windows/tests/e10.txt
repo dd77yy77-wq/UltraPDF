@@ -1,0 +1,9 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2000
+ed dlgexport
+wait 800
+shotscreen Z:\tmp\t\e10_a.bmp
+closedlg
+wait 300
+quit

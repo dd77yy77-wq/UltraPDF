@@ -1,0 +1,31 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+ed picture /tmp/stamp.png
+ed drag 0 297 221 150 400
+ed selinfo
+ed drag 0 239.6 489.6 300 540
+ed selinfo
+wait 300
+shot Z:\tmp\t\e3_a.bmp
+ed btn 620
+ed dump 0
+ed selinfo
+wait 300
+shot Z:\tmp\t\e3_b.bmp
+ed btn 617
+ed dump 0
+ed btn 621
+ed dump 0
+ed undo
+ed page rotcw
+wait 500
+shot Z:\tmp\t\e3_c.bmp
+ed page blank
+ed page up
+ed dump 0
+ed undo
+ed undo
+ed undo
+ed save Z:\tmp\t\e3_out.pdf
+quit

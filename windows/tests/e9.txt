@@ -1,0 +1,5 @@
+size 1200 860
+open Z:\tmp\t\x_asis.pdf
+wait 2500
+shot Z:\tmp\t\e9_a.bmp
+quit

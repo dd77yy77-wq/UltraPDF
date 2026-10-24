@@ -1,5 +1,8 @@
 // Scripted self-test hook: runs only when ULTRAPDF_TEST points to a script. Used for screenshots/regression in CI (Wine).
 #include "app.h"
+#ifdef APP_EDITOR
+#include "editor.h"
+#endif
 #include <fstream>
 #include <sstream>
 size_t CacheStatBytes(size_t* n);
@@ -63,6 +66,9 @@ static void ScriptThread(ws script) {
     std::string rest;
     std::getline(ss, rest);
     if (!rest.empty() && rest[0] == ' ') rest.erase(0, 1);
+#ifdef APP_EDITOR
+    if (c == "ed") { std::string r = rest; OnUI([r]() { bool ok = EdTestCommand(r); FILE* f = _wfopen(L"Z:\\tmp\\t\\edlog.txt", L"a"); if (f) { fprintf(f, "%s -> %s\n", r.c_str(), ok ? "ok" : "FAIL"); fclose(f); } }); continue; }
+#endif
     if (c == "wait") Sleep(atoi(rest.c_str()));
     else if (c == "open") { ws p = Utf8ToW(rest); OnUI([p]() { OpenPath(p); }); }
     else if (c == "cmd") { int id = NameToCmd(rest); OnUI([id]() { if (id) DoCmd(id); }); }

@@ -1,0 +1,12 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+ed shape 0 0 80 200 180 100 2 1060cc
+ed picture /tmp/stamp.png
+ed tool hilite
+ed drag 0 70 106 330 106
+ed export 2 200 0 75 30 Z:\tmp\t\x_col.pdf
+ed export 1 200 1 75 30 Z:\tmp\t\x_flat.pdf
+ed export 2 200 1 75 30 Z:\tmp\t\x_gray.pdf
+ed export 0 200 1 75 0 Z:\tmp\t\x_asis.pdf
+quit

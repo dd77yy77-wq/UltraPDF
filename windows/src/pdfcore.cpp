@@ -79,6 +79,10 @@ Doc::~Doc() {
   std::lock_guard<std::recursive_mutex> lk(g_pdf);
   for (auto& e : pcache) PA.FPDF_ClosePage(e.second);
   pcache.clear();
+#ifdef APP_EDITOR
+  for (auto& f : fonts) if (f.second) PA.FPDFFont_Close((FPDF_FONT)f.second);
+  fonts.clear();
+#endif
   if (h) PA.FPDF_CloseDocument(h);
   h = nullptr;
   if (hf != INVALID_HANDLE_VALUE) CloseHandle(hf);
@@ -127,6 +131,25 @@ static void BuildOutlineRec(Doc* d, FPDF_BOOKMARK parent, int level, std::vector
   }
 }
 
+// page sizes and outline of a freshly loaded PDFium document (under g_pdf)
+static void ReadDocInfo(Doc* d, OpenResult* res) {
+  d->npages = PA.FPDF_GetPageCount(d->h);
+  d->pw.assign(d->npages, 595);
+  d->ph.assign(d->npages, 842);
+  for (int i = 0; i < d->npages; i++) {
+    FS_SIZEF sz2 = {595, 842};
+    if (!PA.FPDF_GetPageSizeByIndexF(d->h, i, &sz2) || sz2.width < 1 || sz2.height < 1) { sz2.width = 595; sz2.height = 842; }
+    d->pw[i] = sz2.width;
+    d->ph[i] = sz2.height;
+  }
+  d->outline.clear();
+  BuildOutlineRec(d, nullptr, 0, d->outline);
+  int roots = 0;
+  for (auto& o : d->outline) if (o.level == 0) roots++;
+  if (roots == 1 && !d->outline.empty()) d->outline[0].open = true;
+  if (d->npages <= 0 && res) res->error = 4;
+}
+
 static void OpenJob(int tabId, const ws& path, const std::string& password) {
   auto* res = new OpenResult();
   res->tabId = tabId;
@@ -134,6 +157,20 @@ static void OpenJob(int tabId, const ws& path, const std::string& password) {
   auto d = std::make_shared<Doc>();
   d->id = g_nextDocId++;
   d->path = path;
+#ifdef APP_EDITOR
+  // the editor keeps the whole document in memory: edits are serialized there, undo needs no file, saving cannot collide with a read handle
+  if (!ReadFileAll(path, &d->src)) {
+    res->error = 1;
+  } else {
+    d->pass = password;
+    std::lock_guard<std::recursive_mutex> lk(g_pdf);
+    d->h = PA.FPDF_LoadMemDocument(d->src.data(), (int)d->src.size(), password.empty() ? nullptr : password.c_str());
+    if (!d->h) {
+      unsigned long e = PA.FPDF_GetLastError();
+      res->error = e == 4 ? (password.empty() ? 2 : 3) : 4;
+    } else ReadDocInfo(d.get(), res);
+  }
+#else
   d->hf = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                       FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, nullptr);
   if (d->hf == INVALID_HANDLE_VALUE) {
@@ -149,26 +186,62 @@ static void OpenJob(int tabId, const ws& path, const std::string& password) {
     if (!d->h) {
       unsigned long e = PA.FPDF_GetLastError();
       res->error = e == 4 ? (password.empty() ? 2 : 3) : 4;
-    } else {
-      d->npages = PA.FPDF_GetPageCount(d->h);
-      d->pw.resize(d->npages);
-      d->ph.resize(d->npages);
-      for (int i = 0; i < d->npages; i++) {
-        FS_SIZEF sz2 = {595, 842};
-        if (!PA.FPDF_GetPageSizeByIndexF(d->h, i, &sz2) || sz2.width < 1 || sz2.height < 1) { sz2.width = 595; sz2.height = 842; }
-        d->pw[i] = sz2.width;
-        d->ph[i] = sz2.height;
-      }
-      BuildOutlineRec(d.get(), nullptr, 0, d->outline);
-      int roots = 0;
-      for (auto& o : d->outline) if (o.level == 0) roots++;
-      if (roots == 1 && !d->outline.empty()) d->outline[0].open = true;
-      if (d->npages <= 0) res->error = 4;
-    }
+    } else ReadDocInfo(d.get(), res);
   }
+#endif
   if (res->error == 0) res->doc = d;
   PostMessageW(g_notify, WM_APP_OPENED, 0, (LPARAM)res);
 }
+
+#ifdef APP_EDITOR
+// ------------------------------------------------------------------ editing support
+struct MemWriter : FPDF_FILEWRITE {
+  std::string* out;
+};
+static int WriteBlockMem(FPDF_FILEWRITE* self, const void* data, unsigned long size) {
+  ((MemWriter*)self)->out->append((const char*)data, size);
+  return 1;
+}
+// serializes a live document (caller holds g_pdf); every edited page must have had its content generated
+bool SerializeHandle(FPDF_DOCUMENT h, std::string* out) {
+  out->clear();
+  MemWriter w;
+  w.version = 1;
+  w.WriteBlock = WriteBlockMem;
+  w.out = out;
+  if (PA.FPDF_SaveAsCopy(h, &w, FPDF_NO_INCREMENTAL | FPDF_SUBSET_NEW_FONTS)) return true;
+  out->clear();
+  return PA.FPDF_SaveAsCopy(h, &w, FPDF_NO_INCREMENTAL) != 0;
+}
+bool DocSerialize(Doc* d, std::string* out) { return SerializeHandle(d->h, out); }
+void DocClosePageCache(Doc* d) {
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  for (auto& e : d->pcache) PA.FPDF_ClosePage(e.second);
+  d->pcache.clear();
+}
+// replaces the document by the one in `bytes` (same Doc object, same id); the previous bytes go to *oldOut. Tiles are not purged here.
+bool DocReload(Doc* d, std::string&& bytes, std::string* oldOut) {
+  std::lock_guard<std::recursive_mutex> lk(g_pdf);
+  std::string nsrc = std::move(bytes);
+  FPDF_DOCUMENT nh = PA.FPDF_LoadMemDocument(nsrc.data(), (int)nsrc.size(), d->pass.empty() ? nullptr : d->pass.c_str());
+  if (!nh) return false;
+  for (auto& e : d->pcache) PA.FPDF_ClosePage(e.second);
+  d->pcache.clear();
+  for (auto& f : d->fonts) if (f.second) PA.FPDFFont_Close((FPDF_FONT)f.second);
+  d->fonts.clear();
+  PA.FPDF_CloseDocument(d->h);
+  d->h = nh;
+  if (oldOut) *oldOut = std::move(d->src);
+  d->src = std::move(nsrc);
+  ReadDocInfo(d, nullptr);
+  return true;
+}
+void DocClearPageData(Doc* d) {
+  extern std::mutex g_pdm;
+  std::lock_guard<std::mutex> lk(g_pdm);
+  d->pdata.clear();
+}
+#endif
 
 // ------------------------------------------------------------------ cache
 static std::mutex g_cm;
@@ -235,6 +308,18 @@ void CachePurgeDoc(int docId) {
   std::lock_guard<std::mutex> lk(g_cm);
   for (auto it = g_cache.begin(); it != g_cache.end();) {
     if (it->first.doc == docId) {
+      g_cacheBytes -= it->second.bytes;
+      DeleteObject(it->second.t.bmp);
+      g_lru.erase(it->second.it);
+      it = g_cache.erase(it);
+    } else ++it;
+  }
+}
+
+void CachePurgePage(int docId, int page) {
+  std::lock_guard<std::mutex> lk(g_cm);
+  for (auto it = g_cache.begin(); it != g_cache.end();) {
+    if (it->first.doc == docId && it->first.page == page) {
       g_cacheBytes -= it->second.bytes;
       DeleteObject(it->second.t.bmp);
       g_lru.erase(it->second.it);
@@ -429,9 +514,9 @@ void ReqEnd(Consumer c) {
 }
 
 // ------------------------------------------------------------------ text, links
-static std::mutex g_pdm;
+std::mutex g_pdm;
 
-static void ToTL(FPDF_PAGE page, float w, float h, double x, double y, float* ox, float* oy) {
+void ToTL(FPDF_PAGE page, float w, float h, double x, double y, float* ox, float* oy) {
   const int Q = 16;
   int sw = (int)(w * Q), sh = (int)(h * Q);
   if (sw < 1) sw = 1;

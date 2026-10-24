@@ -6,7 +6,7 @@ static std::atomic<bool> g_busy{false};
 static bool g_manual = false;
 
 static bool HttpGet(const ws& host, const ws& path, std::string* body, const ws& saveTo, DWORD* status) {
-  HINTERNET s = WinHttpOpen(L"UltraPDF/" APP_VERSION_NAME, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
+  HINTERNET s = WinHttpOpen(APP_TITLE L"/" APP_VERSION_NAME, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
   if (!s) return false;
   WinHttpSetTimeouts(s, 8000, 8000, 15000, 30000);
   bool ok = false;
@@ -128,14 +128,14 @@ void ApplyDownloaded(const ws& neu) {
   if (!MoveFileExW(self.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING)) {
     MessageBoxW(A_.main,
                 L"Не удалось заменить файл программы (нет прав на папку). Скачайте новую версию вручную со страницы GitHub — открою её.",
-                L"UltraPDF", MB_OK | MB_ICONWARNING);
+                APP_TITLE, MB_OK | MB_ICONWARNING);
     ShellExecuteW(nullptr, L"open", GITHUB_URL, nullptr, nullptr, SW_SHOWNORMAL);
     DeleteFileW(neu.c_str());
     return;
   }
   if (!MoveFileExW(neu.c_str(), self.c_str(), MOVEFILE_REPLACE_EXISTING)) {
     MoveFileExW(old.c_str(), self.c_str(), MOVEFILE_REPLACE_EXISTING);
-    MessageBoxW(A_.main, L"Не удалось установить обновление.", L"UltraPDF", MB_OK | MB_ICONWARNING);
+    MessageBoxW(A_.main, L"Не удалось установить обновление.", APP_TITLE, MB_OK | MB_ICONWARNING);
     return;
   }
   SaveAllState();
@@ -152,7 +152,7 @@ void OnUpdateMsg(WPARAM wp, LPARAM lp) {
     ws t = FmtT(L"Доступна версия %s (у вас %s).", m->info.name.c_str(), APP_VERSION_NAME);
     if (!m->info.notes.empty()) t += L"\n\n" + m->info.notes;
     t += L"\n\nОбновить сейчас? Программа перезапустится, открытые вкладки вернутся.";
-    if (MessageBoxW(A_.main, t.c_str(), L"Обновление UltraPDF", MB_YESNO | MB_ICONINFORMATION) != IDYES) return;
+    if (MessageBoxW(A_.main, t.c_str(), L"Обновление " APP_TITLE, MB_YESNO | MB_ICONINFORMATION) != IDYES) return;
     ShowToast(L"Скачиваю обновление…");
     UpdInfo info = m->info;
     g_busy = true;
@@ -178,9 +178,9 @@ void OnUpdateMsg(WPARAM wp, LPARAM lp) {
       else { DeleteFileW(neu.c_str()); Post(5, info, L"Не удалось скачать обновление или файл не прошёл проверку."); }
     }).detach();
   } else if (wp == 2) {
-    MessageBoxW(A_.main, L"Установлена последняя версия.", L"UltraPDF", MB_OK | MB_ICONINFORMATION);
+    MessageBoxW(A_.main, L"Установлена последняя версия.", APP_TITLE, MB_OK | MB_ICONINFORMATION);
   } else if (wp == 3 || wp == 5) {
-    MessageBoxW(A_.main, m->text.c_str(), L"UltraPDF", MB_OK | MB_ICONWARNING);
+    MessageBoxW(A_.main, m->text.c_str(), APP_TITLE, MB_OK | MB_ICONWARNING);
   } else if (wp == 4) {
     ApplyDownloaded(m->text);
   }

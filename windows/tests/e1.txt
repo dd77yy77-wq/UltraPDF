@@ -1,0 +1,26 @@
+size 1100 760
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+ed text 0 100 120 18 cc0000 Привет, мир!\nВторая строка текста
+ed image 0 300 200 120 120 Z:\tmp\stamp.png
+ed shape 0 0 60 400 200 60 2 1060cc
+ed shape 0 1 300 420 160 80 3 00aa00
+ed ink 0 3 ff8800 60 600 80 580 120 620 160 580 200 610
+ed markup 0 0 0 40 ffeb3b
+ed markup 1 0 100 140 e53935
+ed dump 0
+wait 800
+shot Z:\tmp\t\e1_a.bmp
+ed select 0 340 240
+ed z 3
+ed dump 0
+ed undo
+ed dump 0
+ed redo
+ed select 0 340 240
+ed move 100 50
+ed dump 0
+ed save Z:\tmp\t\e1_out.pdf
+wait 500
+shot Z:\tmp\t\e1_b.bmp
+quit

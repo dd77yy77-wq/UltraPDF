@@ -1,0 +1,8 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\long.pdf
+wait 2500
+ed exportasync 2 300 0 90 0 Z:\tmp\t\x_ui.pdf
+wait 1500
+shotscreen Z:\tmp\t\e11_a.bmp
+wait 6000
+quit

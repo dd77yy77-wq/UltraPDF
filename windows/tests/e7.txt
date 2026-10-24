@@ -1,0 +1,13 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+shot Z:\tmp\t\e7_a.bmp
+ed mode 0
+wait 500
+shot Z:\tmp\t\e7_b.bmp
+ed mode 1
+wait 500
+shot Z:\tmp\t\e7_c.bmp
+ed mode 2
+wait 300
+quit

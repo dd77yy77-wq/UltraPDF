@@ -1,12 +1,25 @@
 #include <windows.h>
+#ifdef APP_EDITOR
+1 ICON "res/UltraPDFEditor.ico"
+#else
 1 ICON "res/UltraPDF.ico"
+#endif
+#ifdef APP_EDITOR
+300 RCDATA "res/icon256_ed.png"
+#else
 300 RCDATA "res/icon256.png"
+#endif
 302 RCDATA "res/wordmark.png"
 301 RCDATA "res/pdfium.dll"
 1 RT_MANIFEST "app.manifest"
 1 VERSIONINFO
+#ifdef APP_EDITOR
+FILEVERSION 1,0,0,1
+PRODUCTVERSION 1,0,0,1
+#else
 FILEVERSION 1,0,0,29
 PRODUCTVERSION 1,0,0,29
+#endif
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -14,11 +27,19 @@ BEGIN
   BEGIN
     BLOCK "041904B0"
     BEGIN
+#ifdef APP_EDITOR
+      VALUE "FileDescription", "UltraPDF Editor"
+      VALUE "ProductName", "UltraPDF Editor"
+      VALUE "FileVersion", "1.0.0.1"
+      VALUE "ProductVersion", "1.0"
+      VALUE "OriginalFilename", "UltraPDF-Editor.exe"
+#else
       VALUE "FileDescription", "UltraPDF"
       VALUE "ProductName", "UltraPDF"
       VALUE "FileVersion", "1.0.0.29"
       VALUE "ProductVersion", "1.19"
       VALUE "OriginalFilename", "UltraPDF.exe"
+#endif
       VALUE "LegalCopyright", "PDFium (Apache-2.0)"
     END
   END

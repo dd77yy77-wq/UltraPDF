@@ -46,7 +46,11 @@ void GfxShutdown() {
 
 static Color C(COLORREF c, int a = 255) { return Color((BYTE)a, GetRValue(c), GetGValue(c), GetBValue(c)); }
 
+#ifdef APP_EDITOR
+COLORREF BrandRed(bool dark) { return dark ? RGB(100, 160, 255) : RGB(25, 75, 170); }
+#else
 COLORREF BrandRed(bool dark) { return dark ? RGB(239, 83, 80) : RGB(198, 40, 40); }
+#endif
 
 void DrawAppIcon(HDC dc, int x, int y, int size) {
   if (!g_appIcon) return;
@@ -109,10 +113,23 @@ int DrawWordmark(HDC dc, int cx, int y, int h, bool dark) {
       px[3] = (BYTE)a;
     }
   }
+  int wx = cx - w / 2;
+#ifdef APP_EDITOR
+  // "UltraPDF" + "Editor": the pair is centred together
+  HFONT ef = UiFont(max(8, (int)lround(h * 0.62)), true);
+  HGDIOBJ oldf = SelectObject(dc, ef);
+  SIZE esz = {0, 0};
+  GetTextExtentPoint32W(dc, L"Editor", 6, &esz);
+  SelectObject(dc, oldf);
+  int gap = h / 3, total = w + gap + esz.cx;
+  wx = cx - total / 2;
+  RECT er = {wx + w + gap, y, wx + w + gap + esz.cx + 4, y + h};
+  DrawTextW2(dc, L"Editor", er, c, ef, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+#endif
   HDC mem = CreateCompatibleDC(dc);
   HGDIOBJ old = SelectObject(mem, bm);
   BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-  AlphaBlend(dc, cx - w / 2, y, w, h, mem, 0, 0, w, h, bf);
+  AlphaBlend(dc, wx, y, w, h, mem, 0, 0, w, h, bf);
   SelectObject(mem, old);
   DeleteDC(mem);
   DeleteObject(bm);
@@ -197,6 +214,7 @@ static void DrawIconG(Graphics& g, Icon ic, FRect R, COLORREF col, float sw) {
   pen.SetLineJoin(LineJoinRound);
   SolidBrush br(C(col));
   auto L = [&](float a, float b, float c, float d) { g.DrawLine(&pen, P(a, b), P(c, d)); };
+  if (ic == IC_REDO) { Matrix m(-1.0f, 0.0f, 0.0f, 1.0f, 2 * (x0 + s / 2), 0.0f); g.SetTransform(&m); ic = IC_UNDO; }
   if (ic == IC_ROTL) { Matrix m(-1.0f, 0.0f, 0.0f, 1.0f, 2 * (x0 + s / 2), 0.0f); g.SetTransform(&m); ic = IC_ROT; }
   switch (ic) {
     case IC_MENU: L(3, 5, 17, 5); L(3, 10, 17, 10); L(3, 15, 17, 15); break;
@@ -348,6 +366,87 @@ static void DrawIconG(Graphics& g, Icon ic, FRect R, COLORREF col, float sw) {
       L(3.5f, 5.5f, 16.5f, 5.5f);
       PointF a[] = {P(5, 5.5f), P(6, 17), P(14, 17), P(15, 5.5f)}; g.DrawLines(&pen, a, 4);
       PointF h[] = {P(8, 5.5f), P(8, 3), P(12, 3), P(12, 5.5f)}; g.DrawLines(&pen, h, 4);
+      break;
+    }
+    case IC_UNDO: {
+      PointF a[] = {P(7, 4.2f), P(3.4f, 8), P(7, 11.8f)}; g.DrawLines(&pen, a, 3);
+      L(3.4f, 8, 11.5f, 8);
+      g.DrawArc(&pen, x0 + 7.5f * k, y0 + 8 * k, 8.5f * k, 8.5f * k, -90, 180);
+      L(11.75f, 16.5f, 7, 16.5f);
+      break;
+    }
+    case IC_CURSOR: {
+      PointF a[] = {P(5, 3), P(5, 15.5f), P(8.2f, 12.4f), P(10.6f, 17.2f), P(12.6f, 16.2f), P(10.2f, 11.5f), P(14.6f, 11.2f)};
+      g.DrawPolygon(&pen, a, 7);
+      break;
+    }
+    case IC_HILITE: {
+      PointF a[] = {P(5.2f, 14.3f), P(5.2f, 11.6f), P(12.2f, 4.6f), P(15.2f, 7.6f), P(8.2f, 14.6f)};
+      g.DrawPolygon(&pen, a, 5);
+      SolidBrush yb(C(col, 110));
+      g.FillRectangle(&yb, x0 + 3 * k, y0 + 16 * k, 14 * k, 2.4f * k);
+      break;
+    }
+    case IC_UNDER: case IC_STRIKE: case IC_SQUIG: {
+      PointF a[] = {P(5.5f, 13), P(10, 3.5f), P(14.5f, 13)}; g.DrawLines(&pen, a, 3);
+      if (ic == IC_UNDER) { L(7.2f, 9.6f, 12.8f, 9.6f); L(3.5f, 17, 16.5f, 17); }
+      else if (ic == IC_STRIKE) { L(2.8f, 9.5f, 17.2f, 9.5f); L(7.5f, 16, 12.5f, 16); }
+      else {
+        L(7.2f, 9.6f, 12.8f, 9.6f);
+        PointF w[] = {P(3, 16.4f), P(5, 14.8f), P(7, 16.4f), P(9, 14.8f), P(11, 16.4f), P(13, 14.8f), P(15, 16.4f), P(17, 14.8f)};
+        g.DrawLines(&pen, w, 8);
+      }
+      break;
+    }
+    case IC_TEXTT: L(4.5f, 4.5f, 15.5f, 4.5f); L(10, 4.5f, 10, 16); L(7.5f, 16, 12.5f, 16); L(4.5f, 4.5f, 4.5f, 6.6f); L(15.5f, 4.5f, 15.5f, 6.6f); break;
+    case IC_PEN: {
+      PointF a[] = {P(3.6f, 16.4f), P(4.4f, 12.6f), P(13.2f, 3.8f), P(16.2f, 6.8f), P(7.4f, 15.6f)};
+      g.DrawPolygon(&pen, a, 5);
+      L(11.2f, 5.8f, 14.2f, 8.8f);
+      break;
+    }
+    case IC_RECT: { GraphicsPath p; RoundPath(p, x0 + 3 * k, y0 + 4.5f * k, 14 * k, 11 * k, 1.2f * k); g.DrawPath(&pen, &p); break; }
+    case IC_ELLIPSE: g.DrawEllipse(&pen, x0 + 2.5f * k, y0 + 4.2f * k, 15 * k, 11.6f * k); break;
+    case IC_IMAGE: {
+      GraphicsPath p; RoundPath(p, x0 + 2.5f * k, y0 + 3.5f * k, 15 * k, 13 * k, 1.6f * k); g.DrawPath(&pen, &p);
+      PointF m[] = {P(3.5f, 14.5f), P(7.8f, 9.4f), P(11, 12.8f), P(13, 10.8f), P(16.5f, 14.5f)}; g.DrawLines(&pen, m, 5);
+      g.DrawEllipse(&pen, x0 + 11.6f * k, y0 + 5.6f * k, 3 * k, 3 * k);
+      break;
+    }
+    case IC_TOFRONT: case IC_FORWARD: case IC_BACKWARD: case IC_TOBACK: {
+      bool front = ic == IC_TOFRONT || ic == IC_FORWARD;
+      GraphicsPath pb, pf;
+      RoundPath(pb, x0 + 2.5f * k, y0 + 5.5f * k, 9 * k, 9 * k, 1.2f * k);
+      RoundPath(pf, x0 + 8 * k, y0 + 9.5f * k, 9 * k, 9 * k, 1.2f * k);
+      SolidBrush fb(C(col, 215));
+      if (front) { g.DrawPath(&pen, &pb); g.FillPath(&fb, &pf); }
+      else { g.FillPath(&fb, &pb); g.DrawPath(&pen, &pf); }
+      if (front) {
+        L(14.5f, 6.4f, 14.5f, 1.8f);
+        PointF h[] = {P(12.6f, 3.6f), P(14.5f, 1.7f), P(16.4f, 3.6f)}; g.DrawLines(&pen, h, 3);
+        if (ic == IC_TOFRONT) L(12.2f, 0.9f, 16.8f, 0.9f);
+      } else {
+        L(5.5f, 15.6f, 5.5f, 19.4f);
+        PointF h[] = {P(3.6f, 17.6f), P(5.5f, 19.5f), P(7.4f, 17.6f)}; g.DrawLines(&pen, h, 3);
+        if (ic == IC_TOBACK) L(3.2f, 20.3f, 7.8f, 20.3f);
+      }
+      break;
+    }
+    case IC_PAGES: {
+      GraphicsPath p1, p2;
+      RoundPath(p1, x0 + 3.5f * k, y0 + 2.5f * k, 9 * k, 11.5f * k, 1.3f * k);
+      RoundPath(p2, x0 + 7.5f * k, y0 + 6 * k, 9 * k, 11.5f * k, 1.3f * k);
+      g.DrawPath(&pen, &p1);
+      SolidBrush bg(Color(0, 0, 0, 0));
+      g.DrawPath(&pen, &p2);
+      L(10, 10.5f, 14, 10.5f); L(10, 13, 14, 13);
+      break;
+    }
+    case IC_SAVEAS: {
+      PointF a[] = {P(3, 3), P(13, 3), P(16, 6), P(16, 10)}; g.DrawLines(&pen, a, 4);
+      PointF b[] = {P(3, 3), P(3, 17), P(9, 17)}; g.DrawLines(&pen, b, 3);
+      PointF c[] = {P(5.8f, 3), P(5.8f, 7), P(11, 7), P(11, 3)}; g.DrawLines(&pen, c, 4);
+      L(11.5f, 15.5f, 17.5f, 9.5f); L(15.5f, 8.8f, 18.2f, 11.5f);
       break;
     }
     default: break;

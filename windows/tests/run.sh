@@ -5,7 +5,7 @@ pgrep Xvfb >/dev/null || { Xvfb :99 -screen 0 1920x1080x24 >/dev/null 2>&1 & sle
 S=$(readlink -f "$1")
 W=$(echo "$S" | sed 's|/|\\|g'); W="Z:$W"
 mkdir -p /tmp/t
-[ -n "$KEEP_STATE" ] || rm -f /tmp/wl/pfx/drive_c/users/*/AppData/Roaming/UltraPDF/state.txt
-EXE=$(readlink -f "$(dirname "$0")/../UltraPDF.exe")
+[ -n "$KEEP_STATE" ] || rm -f /tmp/wl/pfx/drive_c/users/*/AppData/Roaming/UltraPDF/state.txt "/tmp/wl/pfx/drive_c/users/"*/AppData/Roaming/"UltraPDF Editor"/state.txt
+EXE=$(readlink -f "$(dirname "$0")/../${EXE_NAME:-UltraPDF.exe}")
 ULTRAPDF_TEST="$W" timeout ${2:-60} /tmp/wl/wine-10.0-amd64/bin/wine64 "$EXE" "${@:3}"
 echo "exit: $?"

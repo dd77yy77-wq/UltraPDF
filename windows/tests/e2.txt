@@ -1,0 +1,32 @@
+size 1200 860
+open Z:\home\claude\ultrapdf\windows\tests\sample.pdf
+wait 2500
+shot Z:\tmp\t\e2_a.bmp
+ed tool hilite
+ed drag 0 70 106 330 106
+wait 300
+ed tool rect
+ed drag 0 80 200 260 300
+ed selinfo
+ed tool ink
+ed drag 0 300 220 420 260
+ed tool select
+ed textbox 0 90 330 Заметка редактора\nвторая строка
+ed textcommit
+ed selinfo
+ed picture /tmp/stamp.png
+ed selinfo
+wait 400
+shot Z:\tmp\t\e2_b.bmp
+ed drag 0 150 250 190 290
+ed selinfo
+ed btn 604
+ed setcolor 2
+wait 300
+shot Z:\tmp\t\e2_c.bmp
+ed undo
+ed undo
+ed redo
+ed save Z:\tmp\t\e2_out.pdf
+ed dump 0
+quit
