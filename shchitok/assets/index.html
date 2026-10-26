@@ -164,7 +164,7 @@ function TX(g,x,y,t,sz,f,anc,wt,fam){return SE(g,"text",{x:x,y:y,"font-size":sz,
 function CI(g,x,y,r,f,s,sw){return SE(g,"circle",{cx:x,cy:y,r:r,fill:f,stroke:s||"none","stroke-width":sw||3});}
 function LN(g,x1,y1,x2,y2,s,w,cap){return SE(g,"line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:s,"stroke-width":w,"stroke-linecap":cap||"round"});}
 function SCREW(g,x,y,r){CI(g,x,y,r,"#d5d9df","#7f8793",4);CI(g,x,y,r*0.62,"#eef0f3","#aab0ba",2);LN(g,x-r*0.5,y,x+r*0.5,y,"#5b626d",5);LN(g,x,y-r*0.5,x,y+r*0.5,"#5b626d",5);}
-function SBG(g,h,title){RC(g,0,0,2576,h,"#12151b");TX(g,60,84,title,46,"#8b93a3","start",700);}
+function SBG(g,h,title){RC(g,0,0,2576,h,"#12151b");TX(g,60,66,title,44,"#8b93a3","start",700);}
 
 var LEFT_POLYS=[];
 for(var q=0;q<12;q++){var lx=170+190*q;LEFT_POLYS.push([[lx,245],[lx+184,245],[lx+184,910],[lx,910]]);}
@@ -188,12 +188,12 @@ function drawLeft(g){
     var x=170+190*i;
     RC(g,x+6,245,172,100,"#eef0f3","#aeb4bd",10,3);SCREW(g,x+92,292,34);
     RC(g,x,340,184,470,"#f4f5f7","#aeb4bd",14,3);
-    TX(g,x+14,395,"DEKraft",34,"#1f232a","start",800);
-    LN(g,x+14,407,x+120,407,"#1f232a",4);
-    TX(g,x+14,462,"B16",66,"#111418","start",800);
-    RC(g,x+120,432,52,28,"#fff","#1f232a",3,2);TX(g,x+146,453,"4500",19,"#1f232a","middle",700);
-    TX(g,x+14,500,"230/400В~",26,"#2a2f38","start",600);
-    TX(g,x+14,556,"ВА-101",22,"#2a2f38","start",700);
+    TX(g,x+14,392,"DEKraft",30,"#1f232a","start",800);
+    LN(g,x+14,402,x+120,402,"#1f232a",4);
+    TX(g,x+14,462,"B16",54,"#111418","start",800);
+    RC(g,x+122,424,48,26,"#fff","#1f232a",3,2);TX(g,x+146,443,"4500",17,"#1f232a","middle",700);
+    TX(g,x+14,504,"230/400В~",22,"#2a2f38","start",600);
+    TX(g,x+14,546,"ВА-101",22,"#2a2f38","start",700);
     RC(g,x+30,580,124,170,"#d4dae1","#aeb4bd",12,3);
     RC(g,x+44,596,96,110,"#0f7f6f","#0a5a4e",14,3);
     TX(g,x+92,662,"I",54,"#d9fff6","middle",800);
