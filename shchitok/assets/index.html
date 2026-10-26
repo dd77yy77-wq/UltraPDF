@@ -11,7 +11,8 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:16px/1.
 #app{display:flex;flex-direction:column;height:100%}
 header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .tabs{flex:1;display:flex;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.tabs button{flex:1;background:none;border:0;color:var(--mut);font-size:13px;font-weight:700;padding:8px 2px;white-space:nowrap}
+.tabs button{flex:1;background:none;border:0;color:var(--mut);font-size:13px;font-weight:700;padding:5px 2px 3px;white-space:nowrap;display:flex;flex-direction:column;align-items:center;line-height:1.15}
+.tabs small{font-size:10px;font-weight:700;min-height:12px;opacity:.85}
 .tabs button.on{background:var(--acc);color:#1a1200}
 #photoBox{position:relative;flex:none}
 #photoBox .zoom{position:absolute;top:8px;right:8px;z-index:3;background:rgba(26,29,36,.82);backdrop-filter:blur(4px)}
@@ -115,7 +116,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 <body>
 <div id="app">
   <header>
-    <div class="tabs" id="tabs"><button data-p="left" class="on">Левый</button><button data-p="right">Правый</button><button data-p="dev">Устройства</button><button data-p="conv">Конвекторы</button></div>
+    <div class="tabs" id="tabs"><button data-p="left" data-t="Левый" class="on"></button><button data-p="right" data-t="Правый"></button><button data-p="dev" data-t="Устройства"></button><button data-p="conv" data-t="Конвекторы"></button></div>
   </header>
   <div id="photoBox"><div class="zoom" id="zoom"><button data-z="1" class="on">1×</button><button data-z="2">2×</button><button data-z="3">3×</button></div>
   <div id="photoWrap"><div id="stage">
@@ -123,7 +124,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
     <svg id="ov" viewBox="0 0 2576 1840" preserveAspectRatio="none"></svg>
   </div></div></div>
   <div id="listWrap">
-    <p class="hint">Нажмите на устройство на фото или на строку в списке. Карандаш — изменить название.</p>
+    <p class="hint">Нажмите на устройство на фото или на строку в списке. Карандаш — изменить название. Повторное нажатие на вкладку щитка переключает фото и схему.</p>
     <div id="list"></div>
     <div class="foot" id="foot"><span id="ver"></span><div class="fbtns"><button id="upd">Проверить обновления</button><button id="shr">Поделиться АПК</button></div></div>
   </div>
@@ -155,14 +156,150 @@ RDEF[14]="Свет 1-го и 2-го этажа + всё уличное осве�
 RDEF[5]="ХОЛОДИЛЬНИК. Удлинитель холодильника, конвектор Баллу инверт 25 в коридоре (через умную розетку), Сбер Хаб";
 RDEF[16]="Электроплита";
 var LDEF=["Верхний свет в комнате маман","Розетка в комнате с проектором (в неё подключён 2-й роутер Xiaomi AX6000)","Розетка в комнате маман","Розетка в комнате с барабанами","Удлинитель в гостиной у дивана (через умную розетку — конвектор Баллу инверт 25)","Удлинитель на кухню в гостиной: чайник, микроволновка, гриль, мультиварка (чёрный провод 3×2,5 мм²)","","","","","",""];
+// ---------- схемы (рисуются в тех же координатах 2576 px по ширине) ----------
+var SNS="http://www.w3.org/2000/svg";
+function SE(g,n,a,txt){var e=document.createElementNS(SNS,n);for(var k in a)e.setAttribute(k,a[k]);if(txt!==undefined)e.textContent=txt;g.appendChild(e);return e;}
+function RC(g,x,y,w,h,f,s,rx,sw){return SE(g,"rect",{x:x,y:y,width:w,height:h,fill:f,stroke:s||"none","stroke-width":sw||3,rx:rx||0});}
+function TX(g,x,y,t,sz,f,anc,wt,fam){return SE(g,"text",{x:x,y:y,"font-size":sz,fill:f,"text-anchor":anc||"start","font-weight":wt||600,"font-family":fam||"system-ui,Roboto,sans-serif"},t);}
+function CI(g,x,y,r,f,s,sw){return SE(g,"circle",{cx:x,cy:y,r:r,fill:f,stroke:s||"none","stroke-width":sw||3});}
+function LN(g,x1,y1,x2,y2,s,w,cap){return SE(g,"line",{x1:x1,y1:y1,x2:x2,y2:y2,stroke:s,"stroke-width":w,"stroke-linecap":cap||"round"});}
+function SCREW(g,x,y,r){CI(g,x,y,r,"#d5d9df","#7f8793",4);CI(g,x,y,r*0.62,"#eef0f3","#aab0ba",2);LN(g,x-r*0.5,y,x+r*0.5,y,"#5b626d",5);LN(g,x,y-r*0.5,x,y+r*0.5,"#5b626d",5);}
+function SBG(g,h,title){RC(g,0,0,2576,h,"#12151b");TX(g,60,84,title,46,"#8b93a3","start",700);}
+
+var LEFT_POLYS=[];
+for(var q=0;q<12;q++){var lx=170+190*q;LEFT_POLYS.push([[lx,245],[lx+184,245],[lx+184,910],[lx,910]]);}
+function drawLeft(g){
+  SBG(g,1500,"ЛЕВЫЙ ЩИТОК — 12 × DEKraft B16 (1P)");
+  // DIN-рейка
+  RC(g,20,590,2536,80,"#8e97a2","#6a727d",6);
+  for(var s=0;s<26;s++)RC(g,60+s*98,618,56,22,"#3b414a","none",11);
+  // ввод фазы: кабель, наконечник, две клеммы, медная перемычка
+  LN(g,0,150,100,150,"#1c1e22",58);
+  RC(g,92,122,46,56,"#2563eb","none",8);
+  RC(g,150,88,150,126,"#f1f3f6","#aeb4bd",12,4);SCREW(g,225,135,30);
+  RC(g,320,88,150,126,"#f1f3f6","#aeb4bd",12,4);SCREW(g,395,135,30);
+  RC(g,300,198,360,14,"#c77a48","none",3);
+  // гребёнка
+  RC(g,630,190,1830,44,"#e9ecf0","#aeb4bd",6,3);
+  for(var t=0;t<12;t++)RC(g,170+190*t+10,234,164,10,"#cfd4db","none",2);
+  TX(g,1545,222,"Гребёнка (общая шина)",26,"#4b5260","middle",600);
+  // автоматы
+  for(var i=0;i<12;i++){
+    var x=170+190*i;
+    RC(g,x+6,245,172,100,"#eef0f3","#aeb4bd",10,3);SCREW(g,x+92,292,34);
+    RC(g,x,340,184,470,"#f4f5f7","#aeb4bd",14,3);
+    TX(g,x+14,395,"DEKraft",34,"#1f232a","start",800);
+    LN(g,x+14,407,x+120,407,"#1f232a",4);
+    TX(g,x+14,462,"B16",66,"#111418","start",800);
+    RC(g,x+120,432,52,28,"#fff","#1f232a",3,2);TX(g,x+146,453,"4500",19,"#1f232a","middle",700);
+    TX(g,x+14,500,"230/400В~",26,"#2a2f38","start",600);
+    TX(g,x+14,556,"ВА-101",22,"#2a2f38","start",700);
+    RC(g,x+30,580,124,170,"#d4dae1","#aeb4bd",12,3);
+    RC(g,x+44,596,96,110,"#0f7f6f","#0a5a4e",14,3);
+    TX(g,x+92,662,"I",54,"#d9fff6","middle",800);
+    RC(g,x+6,810,172,100,"#eef0f3","#aeb4bd",10,3);SCREW(g,x+92,858,34);
+    LN(g,x+92,910,x+92,1015,"#d8d3c3",15);
+  }
+  // нулевая шина
+  RC(g,40,1110,2496,150,"#f1f3f6","#aeb4bd",16,4);
+  RC(g,150,1165,2280,44,"#c9a24b","#8f6f23",4,3);
+  for(var b=0;b<24;b++)SCREW(g,200+b*96,1187,32);
+  TX(g,1288,1325,"Нулевая шина N",42,"#aab0be","middle",700);
+}
+
+var RIGHT_POLYS=[];
+(function(){
+  var dx=[90,410,730];for(var a=0;a<3;a++)RIGHT_POLYS.push([[dx[a],340],[dx[a]+290,340],[dx[a]+290,650],[dx[a],650]]);
+  var kx=[1160,1348,1724,2100],kw=[188,376,376,376];
+  for(var k=0;k<4;k++)RIGHT_POLYS.push([[kx[k],150],[kx[k]+kw[k],150],[kx[k]+kw[k],960],[kx[k],960]]);
+  for(var m=0;m<9;m++){var mx=60+201*m;RIGHT_POLYS.push([[mx,1200],[mx+201,1200],[mx+201,2270],[mx,2270]]);}
+  RIGHT_POLYS.push([[1869,1200],[2472,1200],[2472,2270],[1869,2270]]);
+})();
+var LEFT_BADGES=[];for(var q2=0;q2<12;q2++)LEFT_BADGES.push([170+190*q2+92,640]);
+var RIGHT_BADGES=[null,null,null,[1254,660],[1536,660],[1912,660],[2288,660]];
+for(var q3=0;q3<9;q3++)RIGHT_BADGES.push([60+201*q3+100,1525]);
+RIGHT_BADGES.push([2170,1525]);
+function drawRight(g){
+  SBG(g,2400,"ПРАВЫЙ ЩИТОК — вводное реле, Schneider K60a, Schneider Easy9");
+  // --- реле EKF MRVA-3 63A ---
+  RC(g,60,150,1050,880,"#e4e7ec","#aeb4bd",18,4);
+  RC(g,60,300,1050,560,"#f1f3f6","#cfd4db",0,2);
+  TX(g,600,128,"ВЫХОД ↑ к стабилизатору",38,"#9ec5ff","middle",700);
+  var tn=["N","L1","L2","L3"],tx=[200,480,740,1000];
+  for(var i=0;i<4;i++){SCREW(g,tx[i],225,40);TX(g,tx[i],292,tn[i],34,"#2a2f38","middle",700);}
+  TX(g,600,268,"OUT",30,"#2a2f38","middle",700);
+  var dxs=[90,410,730],ln=["L1","L2","L3"];
+  for(var d=0;d<3;d++){
+    RC(g,dxs[d],340,290,310,"#0f1216","#2a2f38",10,3);
+    TX(g,dxs[d]+275,392,"V",30,"#a02020","end",700);TX(g,dxs[d]+275,545,"A",30,"#a02020","end",700);
+    TX(g,dxs[d]+18,445,"888",110,"#4a1818","start",700,"monospace");
+    TX(g,dxs[d]+18,600,"888",110,"#4a1818","start",700,"monospace");
+    TX(g,dxs[d]+145,500,ln[d],28,"#aab0be","middle",700);
+    CI(g,140+100*d,715,15,"#2fbf5a","#1b7a38",3);TX(g,140+100*d,762,ln[d],24,"#2a2f38","middle",700);
+  }
+  RC(g,90,800,70,40,"#d8232a","none",6);TX(g,125,830,"EKF",28,"#fff","middle",800);
+  TX(g,190,833,"MRVA-3 63A",34,"#2a2f38","start",700);
+  var bt=[["⏻",640],["M",740],["▲",840],["▼",940]];
+  for(var j=0;j<4;j++){CI(g,bt[j][1],735,42,"#20242b","#0c0e12",3);TX(g,bt[j][1],750,bt[j][0],42,j===0?"#ff5a5a":"#e6e9ee","middle",700);}
+  RC(g,60,860,1050,170,"#e4e7ec","#aeb4bd",18,4);
+  for(var i2=0;i2<4;i2++){SCREW(g,tx[i2],978,40);TX(g,tx[i2],918,tn[i2],34,"#2a2f38","middle",700);}
+  TX(g,600,1010,"IN",30,"#2a2f38","middle",700);
+  TX(g,600,1085,"ВХОД ↑ от столба",38,"#9ec5ff","middle",700);
+  // --- Schneider K60a ---
+  var grp=[{x:1160,n:1,r:"C 40A"},{x:1348,n:2,r:"C 25A"},{x:1724,n:2,r:"C 16A"},{x:2100,n:2,r:"C 16A"}];
+  for(var gI=0;gI<grp.length;gI++){
+    var G=grp[gI];
+    for(var mm=0;mm<G.n;mm++){
+      var mx=G.x+188*mm;
+      RC(g,mx+6,150,176,190,"#eef0f3","#aeb4bd",10,3);SCREW(g,mx+94,240,40);
+      RC(g,mx,330,188,480,"#f1f3f6","#aeb4bd",12,3);
+      RC(g,mx+4,372,180,16,"#3dcd58","none",0);
+      TX(g,mx+14,430,"Schneider",27,"#1c8f3a","start",800);TX(g,mx+14,460,"Electric",22,"#1c8f3a","start",600);
+      if(mm===0)TX(g,mx+14,508,"K60a "+G.r,24,"#2a2f38","start",700);
+      RC(g,mx+6,810,176,150,"#eef0f3","#aeb4bd",10,3);SCREW(g,mx+94,885,40);
+    }
+    RC(g,G.x+22,560,188*G.n-44,190,"#d4dae1","#aeb4bd",14,3);
+    RC(g,G.x+36,590,188*G.n-72,120,"#23262c","#0c0e12",12,3);
+  }
+  // --- гребёнка и Easy9 ---
+  RC(g,100,1150,2372,48,"#e9ecf0","#aeb4bd",6,3);
+  TX(g,1286,1184,"Гребёнка (общая шина)",28,"#4b5260","middle",600);
+  var rat=["C16","C16","C16","C10","C10","C10","C6","C6","C6"],cod=["EZ9F34116","EZ9F34116","EZ9F34116","EZ9F34110","EZ9F34110","EZ9F34110","EZ9F34106","EZ9F34106","EZ9F34106"];
+  function easy(x,w,rt,cd,pole3){
+    RC(g,x+6,1200,w-12,260,"#eef0f3","#aeb4bd",10,3);
+    RC(g,x,1450,w,670,"#f1f3f5","#aeb4bd",12,3);
+    TX(g,x+14,1660,"Schneider",29,"#1c8f3a","start",800);TX(g,x+14,1690,"Electric",22,"#1c8f3a","start",600);
+    TX(g,x+14,1738,"Easy9  MCB",26,"#2a2f38","start",700);
+    TX(g,x+14,1800,rt,56,"#111418","start",800);
+    RC(g,x+w-70,1758,50,42,"#16a34a","none",6);TX(g,x+w-45,1790,"EZ",28,"#fff","middle",800);
+    TX(g,x+14,1838,"4500",22,"#2a2f38","start",700);TX(g,x+14,1870,cd,20,"#2a2f38","start",600);
+    RC(g,x+6,2120,w-12,150,"#eef0f3","#aeb4bd",10,3);
+  }
+  for(var e=0;e<9;e++){
+    var ex=60+201*e;easy(ex,201,rat[e],cod[e]);
+    SCREW(g,ex+100,1330,38);SCREW(g,ex+100,2195,38);
+    RC(g,ex+52,1920,98,170,"#d4dae1","#aeb4bd",12,3);RC(g,ex+62,1940,78,120,"#23262c","#0c0e12",12,3);
+  }
+  // 3-полюсный автомат (3 модуля)
+  for(var p3=0;p3<3;p3++){
+    var px=1869+201*p3;easy(px,201,"C16","EZ9F34316");
+    SCREW(g,px+100,1330,38);SCREW(g,px+100,2195,38);
+    RC(g,px+52,1920,98,170,"#d4dae1","#aeb4bd",12,3);RC(g,px+62,1940,78,120,"#23262c","#0c0e12",12,3);
+  }
+  RC(g,1890,1890,560,56,"#23262c","#0c0e12",10,3);
+  // бумажные метки из фото
+  function tape(x,t,c){var r=RC(g,x+28,1250,146,150,"#e8dcb8","#bfae7e",4,3);TX(g,x+101,1355,t,100,c,"middle",800,"cursive");}
+  tape(60,"B","#1f232a");tape(60+201*2,"X","#1f232a");tape(60+201*8,"8","#1d4ed8");
+}
 var PANELS={
- left:{key:"shchitok.labels.v1",photo:"photo.jpg",vb:[2576,1840],polys:LP,sub:LSUB,defs:LDEF},
- right:{key:"shchitok.labels.right.v1",photo:"photo_right.jpg",vb:[2576,2509],polys:RP,sub:RSUB,defs:RDEF,warn:[5]}
+ left:{key:"shchitok.labels.v1",photo:"photo.jpg",vb:[2576,1840],polys:LP,sub:LSUB,defs:LDEF,scheme:{vb:[2576,1500],polys:LEFT_POLYS,badges:LEFT_BADGES,draw:drawLeft}},
+ right:{key:"shchitok.labels.right.v1",photo:"photo_right.jpg",vb:[2576,2509],polys:RP,sub:RSUB,defs:RDEF,warn:[5],scheme:{vb:[2576,2400],polys:RIGHT_POLYS,badges:RIGHT_BADGES,warnAt:{5:[1912,62]},draw:drawRight}}
 };
 var PKEY="shchitok.panel";
 var cur="left";
 try{var sp=localStorage.getItem(PKEY);if(sp&&PANELS[sp])cur=sp;}catch(e){}
-var P=PANELS[cur], edits={};
+var P=PANELS[cur], edits={}, VIEW={left:"photo",right:"photo"};
+function V(){return VIEW[cur]==="scheme"?P.scheme:{vb:P.vb,polys:P.polys};}
 function loadEdits(){edits={};try{edits=JSON.parse(localStorage.getItem(P.key)||"{}")||{};}catch(e){edits={};}}
 function save(){try{localStorage.setItem(P.key,JSON.stringify(edits));}catch(e){}}
 function label(i){
@@ -180,29 +317,33 @@ var WARN_SVG='<svg viewBox="0 0 24 24" width="28" height="28"><path d="M12 2.5 L
 var dim,hits,bds,rows,names;
 function build(){
   P=PANELS[cur]; loadEdits(); sel=-1;
+  var v=V();
   photo.setAttribute("src",P.photo);
-  ov.setAttribute("viewBox","0 0 "+P.vb[0]+" "+P.vb[1]);
+  if(VIEW[cur]==="scheme"){photo.style.display="none";stage.style.aspectRatio=v.vb[0]+" / "+v.vb[1];}
+  else{photo.style.display="";stage.style.aspectRatio="";}
+  ov.setAttribute("viewBox","0 0 "+v.vb[0]+" "+v.vb[1]);
   while(ov.firstChild)ov.removeChild(ov.firstChild);
+  if(VIEW[cur]==="scheme"){var sg=el("g",{"class":"sch"});ov.appendChild(sg);P.scheme.draw(sg);}
   list.innerHTML="";
   dim=el("path",{id:"dim"}); ov.appendChild(dim);
   hits=[];bds=[];rows=[];names=[];
-  var n=P.polys.length;
+  var n=v.polys.length;
   for(var i=0;i<n;i++){
-    var h=el("polygon",{"class":"hit",points:pstr(P.polys[i])});
+    var h=el("polygon",{"class":"hit",points:pstr(v.polys[i])});
     (function(i){h.addEventListener("click",function(){select(i,false);});})(i);
     ov.appendChild(h); hits.push(h);
   }
   for(var i=0;i<n;i++){
-    var c=center(P.polys[i]);
+    var c=(v.badges&&v.badges[i])||center(v.polys[i]);
     var g=el("g",{"class":"bd"});
     g.appendChild(el("circle",{cx:c[0],cy:c[1],r:56}));
     var t=el("text",{x:c[0],y:c[1]+3}); t.textContent=String(i+1); g.appendChild(t);
     ov.appendChild(g); bds.push(g);
     if(P.warn&&P.warn.indexOf(i)>=0){
-      var w=el("g",{"class":"wn"});
-      w.appendChild(el("path",{"class":"t",d:"M"+c[0]+","+(c[1]-186)+" L"+(c[0]+66)+","+(c[1]-72)+" L"+(c[0]-66)+","+(c[1]-72)+" Z"}));
-      w.appendChild(el("rect",{"class":"e",x:c[0]-6,y:c[1]-150,width:12,height:40,rx:6}));
-      w.appendChild(el("circle",{"class":"e",cx:c[0],cy:c[1]-94,r:8}));
+      var w=el("g",{"class":"wn"});var wc=(v.warnAt&&v.warnAt[i])?[v.warnAt[i][0],v.warnAt[i][1]+129]:c;
+      w.appendChild(el("path",{"class":"t",d:"M"+wc[0]+","+(wc[1]-186)+" L"+(wc[0]+66)+","+(wc[1]-72)+" L"+(wc[0]-66)+","+(wc[1]-72)+" Z"}));
+      w.appendChild(el("rect",{"class":"e",x:wc[0]-6,y:wc[1]-150,width:12,height:40,rx:6}));
+      w.appendChild(el("circle",{"class":"e",cx:wc[0],cy:wc[1]-94,r:8}));
       ov.appendChild(w);
     }
   }
@@ -222,7 +363,8 @@ function build(){
   render();
 }
 function render(){
-  for(var i=0;i<P.polys.length;i++){
+  var v=V();
+  for(var i=0;i<v.polys.length;i++){
     var s=label(i), nm=names[i];
     nm.textContent=s||"Не используется"; nm.className="name"+(s?"":" empty");
     var cr="";
@@ -231,7 +373,7 @@ function render(){
     rows[i].className="row"+(s?" used":" unused")+(i===sel?" sel":"")+cr;
   }
   if(sel>=0){
-    dim.setAttribute("d","M0,0H"+P.vb[0]+"V"+P.vb[1]+"H0Z M"+pstr(P.polys[sel]).replace(/ /g," L")+" Z");
+    dim.setAttribute("d","M0,0H"+v.vb[0]+"V"+v.vb[1]+"H0Z M"+pstr(v.polys[sel]).replace(/ /g," L")+" Z");
     dim.setAttribute("class","on");
   } else dim.setAttribute("class","");
 }
@@ -245,7 +387,7 @@ function select(i,fromList){
 }
 function centerPhoto(i,force){
   if(zoom<=1&&!force) return;
-  var k=stage.clientWidth/P.vb[0], c=center(P.polys[i]);
+  var v=V(), k=stage.clientWidth/v.vb[0], c=center(v.polys[i]);
   wrap.scrollTo({left:Math.max(0,c[0]*k-wrap.clientWidth/2),top:Math.max(0,c[1]*k-wrap.clientHeight/2),behavior:"smooth"});
 }
 var zb=document.querySelectorAll("#zoom button");
@@ -260,12 +402,16 @@ for(var k=0;k<zb.length;k++){(function(b){b.addEventListener("click",function(){
   if(sel>=0) centerPhoto(sel);
 });})(zb[k]);}
 var tb=document.querySelectorAll("#tabs button"), app=document.getElementById("app"), mode="panel";
-function markTabs(){var a=(mode==="panel")?cur:mode;for(var j=0;j<tb.length;j++)tb[j].className=(tb[j].getAttribute("data-p")===a)?"on":"";app.className=(mode==="panel")?"":mode;}
-function setPanel(p){if(p!==cur){cur=p;try{localStorage.setItem(PKEY,cur);}catch(e){} mode="panel";markTabs();build();}else{mode="panel";markTabs();}}
+function markTabs(){var a=(mode==="panel")?cur:mode;for(var j=0;j<tb.length;j++){var bp=tb[j].getAttribute("data-p"),on=(bp===a);tb[j].className=on?"on":"";
+  var sm=(on&&(bp==="left"||bp==="right"))?(VIEW[bp]==="scheme"?"схема ⇄":"фото ⇄"):"";
+  tb[j].innerHTML="<span></span><small></small>";tb[j].firstChild.textContent=tb[j].getAttribute("data-t");tb[j].lastChild.textContent=sm;}
+  app.className=(mode==="panel")?"":mode;}
+function setPanel(p,reset){var ch=(p!==cur);if(reset&&VIEW[p]!=="photo"){VIEW[p]="photo";ch=true;}cur=p;try{localStorage.setItem(PKEY,cur);}catch(e){} mode="panel";markTabs();if(ch)build();}
 for(var k=0;k<tb.length;k++){(function(b){b.addEventListener("click",function(){
   var p=b.getAttribute("data-p");
   if(p==="dev"||p==="conv"){mode=p;markTabs();return;}
-  setPanel(p);
+  if(mode==="panel"&&p===cur){VIEW[cur]=(VIEW[cur]==="scheme")?"photo":"scheme";markTabs();build();return;}
+  setPanel(p,true);
 });})(tb[k]);}
 function goTo(p,i){
   setPanel(p); sel=i; render();
