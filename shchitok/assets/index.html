@@ -277,7 +277,7 @@ var PANELS={
 var PKEY="shchitok.panel";
 var cur="left";
 try{var sp=localStorage.getItem(PKEY);if(sp&&PANELS[sp])cur=sp;}catch(e){}
-var P=PANELS[cur], edits={}, VIEW={left:"photo",right:"photo"};
+var P=PANELS[cur], edits={}, VIEW={left:"scheme",right:"scheme"};
 function V(){return VIEW[cur]==="scheme"?P.scheme:{vb:P.vb,polys:P.polys};}
 function loadEdits(){edits={};try{edits=JSON.parse(localStorage.getItem(P.key)||"{}")||{};}catch(e){edits={};}}
 function save(){try{localStorage.setItem(P.key,JSON.stringify(edits));}catch(e){}}
@@ -385,7 +385,7 @@ function markTabs(){var a=(mode==="panel")?cur:mode;for(var j=0;j<tb.length;j++)
   var sm=(on&&(bp==="left"||bp==="right"))?(VIEW[bp]==="scheme"?"схема ⇄":"фото ⇄"):"";
   tb[j].innerHTML="<span></span><small></small>";tb[j].firstChild.textContent=tb[j].getAttribute("data-t");tb[j].lastChild.textContent=sm;}
   app.className=(mode==="panel")?"":mode;}
-function setPanel(p,reset){var ch=(p!==cur);if(reset&&VIEW[p]!=="photo"){VIEW[p]="photo";ch=true;}cur=p;try{localStorage.setItem(PKEY,cur);}catch(e){} mode="panel";markTabs();if(ch)build();}
+function setPanel(p,reset){var ch=(p!==cur);if(reset&&VIEW[p]!=="scheme"){VIEW[p]="scheme";ch=true;}cur=p;try{localStorage.setItem(PKEY,cur);}catch(e){} mode="panel";markTabs();if(ch)build();}
 for(var k=0;k<tb.length;k++){(function(b){b.addEventListener("click",function(){
   var p=b.getAttribute("data-p");
   if(p==="dev"||p==="conv"){mode=p;markTabs();return;}
