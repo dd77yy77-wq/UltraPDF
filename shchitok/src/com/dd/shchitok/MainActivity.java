@@ -76,6 +76,19 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void dial(final String number) {
+            a.runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        a.startActivity(new Intent("android.intent.action.DIAL", Uri.parse("tel:" + number)));
+                    } catch (Throwable e) {
+                        Toast.makeText(a, "Не удалось открыть набор номера", 1).show();
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void checkUpdate() {
             Updater.check(a, true);
         }
