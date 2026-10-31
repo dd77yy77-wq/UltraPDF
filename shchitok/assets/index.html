@@ -83,15 +83,16 @@ header{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
 .sp-img svg{position:absolute;left:0;top:0;width:100%;height:100%}
 .shs{fill:rgba(52,199,89,.08);stroke:rgba(52,199,89,.9);stroke-width:5;cursor:pointer}
 .shs.sel{fill:rgba(255,176,32,.28);stroke:var(--acc);stroke-width:9}
-.sw{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-top:8px}
-.sw.sel{background:#2b2417;border-color:var(--acc)}
-.sw .top{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px}
-.sw .n2{flex:none;width:30px;height:30px;border-radius:50%;background:#d92d20;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}
-.sw .pos{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-.chip2{font-size:13px;font-weight:700;border-radius:999px;padding:4px 10px}
-.chip2.ok{background:rgba(52,199,89,.18);color:#6be08c;border:1px solid rgba(52,199,89,.5)}
-.chip2.ot{background:var(--card2);color:var(--mut);border:1px solid var(--line)}
-.sw .wh{margin-top:8px;font-size:14px;color:#cfd4de}
+.tbw{border-radius:12px;overflow:hidden;border:1px solid var(--line);margin-top:10px}
+.tb{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--card);table-layout:fixed}
+.tb th{background:#1f3a5f;color:#fff;text-align:left;padding:8px 6px;font-size:12px;font-weight:700}
+.tb td{padding:8px 5px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.tb td.ok{background:rgba(52,199,89,.14)}
+.tb td.g{color:#6be08c;font-weight:600}
+.tb tr.sr{cursor:pointer}
+.tb tr.sr.sel td{background:#2b2417}
+.tb tr.sr.sel td.ok{background:#3a3318}
+.tb .n2{width:22px;height:22px;border-radius:50%;background:#d92d20;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px}
 .note{border-radius:12px;padding:10px 12px;margin-top:8px;font-size:14px}
 .note.warn{background:#2b2417;border:1px solid #6b5217}
 .note.bad{background:#2d1717;border:1px solid #7a2a2a;color:#ffd9d6}
@@ -506,18 +507,18 @@ for(var q=0;q<CONV.length;q++){(function(c){
 // ---------- вкладка «Септик» ----------
 var SEPW=document.getElementById("sepWrap");
 var SW=[
- {n:"1",t:"КОМПР. (левый)",norm:"ВКЛ (вверх)",oth:"ВЫКЛ (вниз)",when:"Обслуживание, чистка фильтров, откачка ила дренажным насосом",box:[125,70,300,345]},
- {n:"2",t:"РУЧН. (средний)",norm:"ВЫКЛ (вниз)",oth:"ВКЛ (вверх)",when:"Проверка фаз, откачка ила штатным насосом, сбой автоматики",box:[320,55,475,335]},
- {n:"3",t:"ФАЗА / ОБРАТ. (правый)",norm:"ВЫКЛ (вниз)",oth:"ВКЛ (вверх)",when:"Только при включённом «РУЧН.»: ВКЛ — обратная фаза, ВЫКЛ — прямая",box:[478,55,640,335]},
- {n:"!",t:"Лампа «АВАРИЯ» (справа)",norm:"не горит",oth:"горит",when:"Горит и не гаснет — вызывайте сервис (подробнее ниже)",box:[660,50,805,355]}
+ {n:"1",t1:"КОМПР.",t2:" (левый)",norm1:"ВКЛ",norm2:" (вверх)",oth:"ВЫКЛ (вниз)",when:"Обслуживание, чистка фильтров, откачка ила дренажным насосом",box:[125,70,300,345]},
+ {n:"2",t1:"РУЧН.",t2:" (средний)",norm1:"ВЫКЛ",norm2:" (вниз)",oth:"ВКЛ (вверх)",when:"Проверка фаз, откачка ила штатным насосом, сбой автоматики",box:[320,55,475,335]},
+ {n:"3",t1:"ФАЗА / ОБРАТ.",t2:" (правый)",norm1:"ВЫКЛ",norm2:" (вниз)",oth:"ВКЛ (вверх)",when:"Только при включённом «РУЧН.»: ВКЛ — обратная фаза, ВЫКЛ — прямая",box:[478,55,640,335]},
+ {n:"!",t1:"Лампа «АВАРИЯ»",t2:" (справа)",norm1:"не горит",norm2:"",oth:"горит",when:"Горит и не гаснет — вызывайте сервис",box:[660,50,805,355]}
 ];
 (function(){
   var h='<div class="sp-t">Септик — станция «Юнилос-Астра»</div><div class="hint" style="margin-top:4px">Блок управления: положение переключателей при нормальной работе. Нажмите на переключатель на фото или в списке.</div>';
   h+='<div class="sp-img"><img src="septic_block.jpg" alt="Блок управления станцией"><svg id="shsv" viewBox="0 0 1370 580" preserveAspectRatio="none"></svg></div>';
-  h+='<div id="swl">';
+  h+='<div class="tbw"><table class="tb"><colgroup><col style="width:9%"><col style="width:22%"><col style="width:18%"><col style="width:18%"><col style="width:33%"></colgroup><thead><tr><th>№</th><th>Тумблер</th><th>Норма (авто)</th><th>Другое положение</th><th>Когда нужно</th></tr></thead><tbody>';
   for(var i=0;i<SW.length;i++){var w=SW[i];
-    h+='<div class="sw" data-i="'+i+'"><div class="top"><span class="n2">'+w.n+'</span><span>'+w.t+'</span></div><div class="pos"><span class="chip2 ok">Норма: '+w.norm+'</span><span class="chip2 ot">'+(i===3?'Если':'Другое')+': '+w.oth+'</span></div><div class="wh">'+w.when+'</div></div>';}
-  h+='</div>';
+    h+='<tr class="sr" data-i="'+i+'"><td><span class="n2">'+w.n+'</span></td><td><b>'+w.t1+'</b>'+w.t2+'</td><td class="ok"><b>'+w.norm1+'</b>'+w.norm2+'</td><td>'+w.oth+'</td><td>'+w.when+'</td></tr>';}
+  h+='</tbody></table></div>';
   h+='<div class="note warn"><b>Лампы в норме:</b> «РУЧН.» не горит; «ОБРАТ.» не горит или горит только в обратной фазе; «АВАРИЯ» не горит. Не оставляйте «РУЧН.» включённым надолго: в ручном режиме станция не следит за уровнем воды.</div>';
   h+='<div class="note" style="background:var(--card);border:1px solid var(--line)">В нормальном режиме станция работает <b>автоматически</b>: фазы переключает поплавок в приёмной камере.</div>';
   h+='<div class="sp-h">Питание септика</div><div class="pw"><button class="nd top" id="sepGo">Автомат: Правый №8 (Ванная) ›</button><div class="ar">↓</div><div class="nd">Тройники<span class="sb">&nbsp;— от автомата питание разводится на всё оборудование септика</span></div><div class="br">'
@@ -528,8 +529,9 @@ var SW=[
    +'<div class="nd">Дренажный насос в дренажном колодце</div></div></div>';
   h+='<div class="sp-h">Камеры станции</div><div class="cm"><b>А</b><span>приёмная камера</span><b>Б</b><span>аэротенк</span><b>В</b><span>отстойник</span><b>Г</b><span>иловый стабилизатор</span><b>•</b><span>жироуловитель</span></div>';
   h+='<div class="sp-h">Где булькает при нормальной работе</div>';
-  h+='<div class="ph"><b>Прямая фаза</b><div class="r"><small>Когда включается</small>Идут стоки, приёмная камера наполняется</div><div class="r"><small>Булькает</small><span class="g">Аэротенк (Б), иловый стабилизатор (Г)</span></div><div class="r"><small>Не булькает</small>Приёмная камера (А), отстойник (В)</div></div>';
-  h+='<div class="ph"><b>Обратная фаза</b><div class="r"><small>Когда включается</small>Стоков нет, уровень в приёмной камере падает</div><div class="r"><small>Булькает</small><span class="g">Приёмная камера (А), отстойник (В), жироуловитель</span></div><div class="r"><small>Не булькает</small>Аэротенк (Б): ил оседает, так и должно быть</div></div>';
+  h+='<div class="tbw"><table class="tb"><colgroup><col style="width:20%"><col style="width:25%"><col style="width:30%"><col style="width:25%"></colgroup><thead><tr><th>Фаза</th><th>Когда включается</th><th>Булькает</th><th>Не булькает</th></tr></thead><tbody>'
+   +'<tr><td><b>Прямая</b></td><td>Идут стоки, приёмная камера наполняется</td><td class="g">Аэротенк (Б), иловый стабилизатор (Г)</td><td>Приёмная камера (А), отстойник (В)</td></tr>'
+   +'<tr><td><b>Обратная</b></td><td>Стоков нет, уровень в приёмной камере падает</td><td class="g">Приёмная камера (А), отстойник (В), жиро&shy;уловитель</td><td>Аэротенк (Б): ил оседает, так и должно быть</td></tr></tbody></table></div>';
   h+='<div class="note warn">Если никто не пользуется водой, станция сама чередует фазы (циркуляция), поэтому пузыри в аэротенке то появляются, то пропадают. Это не поломка.</div>';
   h+='<div class="sp-h">Аварийная лампа в доме</div><div class="note bad"><b>Если в доме горит аварийная лампа, значит приёмная камера станции переполнена.</b> В норме лампа не горит. Отключите по возможности расход воды (стирка, душ, посудомойка) и вызовите сервис.</div>';
   h+='<div class="sp-h">Когда звать сервис</div><ul class="sl"><li>Горит лампа «АВАРИЯ» на блоке или аварийная лампа в доме и не гаснет.</li><li>Фаза не переключается долго: аэротенк булькает всё время или не булькает совсем.</li><li>Воздух не идёт ни в одну камеру (проверьте питание и компрессор).</li><li>Откачку ила без опыта лучше доверить сервису; плановое обслуживание — раз в 3–6 месяцев.</li></ul>';
@@ -537,8 +539,8 @@ var SW=[
   h+='<div style="font-size:14px;margin-top:10px;color:#cfd4de">Санкт-Петербург: +7 (812) 320-49-64<br>Новосибирск: +7 (383) 230-18-77<br>Сочи: +7 (862) 226-16-16<br>www.sbm-group.ru</div>';
   h+='<div class="srcn">Источники: технический паспорт «Юнилос-Астра» (astrapipe.ru) и руководство «Юнилос-Астра-5». Памятка составлена для серии «Юнилос-Астра»; для другой модели схема может отличаться.</div>';
   SEPW.innerHTML=h;
-  var sv=document.getElementById("shsv"),cards=SEPW.querySelectorAll(".sw"),rects=[],cur2=-1;
-  function mark(){for(var i=0;i<cards.length;i++){cards[i].className="sw"+(i===cur2?" sel":"");rects[i].setAttribute("class","shs"+(i===cur2?" sel":""));}}
+  var sv=document.getElementById("shsv"),cards=SEPW.querySelectorAll("tr.sr"),rects=[],cur2=-1;
+  function mark(){for(var i=0;i<cards.length;i++){cards[i].className="sr"+(i===cur2?" sel":"");rects[i].setAttribute("class","shs"+(i===cur2?" sel":""));}}
   for(var i=0;i<SW.length;i++){(function(i){
     var b=SW[i].box,r=document.createElementNS(NS,"rect");
     r.setAttribute("x",b[0]);r.setAttribute("y",b[1]);r.setAttribute("width",b[2]-b[0]);r.setAttribute("height",b[3]-b[1]);r.setAttribute("rx",14);
