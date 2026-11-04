@@ -1,0 +1,23 @@
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b=p.chromium.launch(); pg=b.new_page(viewport={'width':412,'height':860})
+    errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
+    pg.goto('file:///home/claude/shchitok/assets/index.html'); pg.wait_for_timeout(400)
+    print('left rows',pg.locator('#list .row').count(), pg.inner_text('#list .row:nth-child(2) .name'))
+    pg.click('#ov polygon:nth-of-type(3)',force=True); pg.wait_for_timeout(300)
+    print('sel row', pg.locator('#list .row.sel .num').inner_text())
+    pg.screenshot(path='/tmp/t_left.png')
+    pg.click('#tabs button[data-p=right]'); pg.wait_for_timeout(500)
+    print('right rows',pg.locator('#list .row').count(), pg.inner_text('#list .row:nth-child(1) .name'))
+    pg.locator('#list .row:nth-child(6)').click(); pg.wait_for_timeout(300)
+    print('hit sel', pg.locator('#ov polygon.sel').count())
+    pg.screenshot(path='/tmp/t_right.png')
+    pg.click('#zoom button[data-z="2"]'); pg.locator('#list .row:nth-child(15)').click(); pg.wait_for_timeout(700)
+    pg.screenshot(path='/tmp/t_right2.png')
+    # edit persistence
+    pg.locator('#list .row:nth-child(4) .edit').click(); pg.fill('#mInput','Тест'); pg.click('#mSave')
+    pg.reload(); pg.wait_for_timeout(400)
+    print('panel after reload', pg.locator('#tabs button.on').inner_text(), pg.inner_text('#list .row:nth-child(4) .name'))
+    pg.click('#tabs button[data-p=left]'); pg.wait_for_timeout(300)
+    print('left unaffected', pg.inner_text('#list .row:nth-child(4) .name'))
+    print(errs); b.close()

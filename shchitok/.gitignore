@@ -1,0 +1,5 @@
+keys/
+*.p12
+*.jks
+build/
+__pycache__/
